@@ -9,16 +9,22 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "clsx": "file:vendor/clsx",
-    "framer-motion": "file:vendor/framer-motion",
-    "lucide-react": "file:vendor/lucide-react",
-    "next": "file:vendor/next",
-    "react": "file:vendor/react",
-    "react-dom": "file:vendor/react-dom",
-    "recharts": "file:vendor/recharts",
-    "tailwind-merge": "file:vendor/tailwind-merge"
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.0.0",
+    "lucide-react": "^0.468.0",
+    "next": "^15.5.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "recharts": "^2.15.0",
+    "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
-    "tailwindcss": "file:vendor/tailwindcss"
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.6.0"
   }
 }
