@@ -1,0 +1,11 @@
+{
+  "name": "非哥股票作战台",
+  "short_name": "股票作战台",
+  "description": "手机优先的股票持仓 Dashboard",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f172a",
+  "orientation": "portrait-primary",
+  "icons": []
+}
