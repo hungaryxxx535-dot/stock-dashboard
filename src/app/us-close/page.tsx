@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { usDailyClose } from "@/data/usDailyClose";
 import { usHoldings } from "@/data/portfolio";
+import { getUsCloseFromApi } from "@/lib/usCloseApi";
 
 const formatUsd = (value: number) => `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const formatPct = (value: number | null) => value === null ? "待更新" : `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
@@ -13,17 +14,27 @@ const operationLines: Record<string, { label: string; line: number; rule: string
   META: { label: "META 核心锚观察线", line: 600, rule: "收盘价守住 600 附近，继续作为美股核心仓观察。" },
 };
 
-export default function UsClosePage() {
-  const updated = usDailyClose.status === "updated";
-  const failed = usDailyClose.status === "failed";
+export const dynamic = "force-dynamic";
+
+export default async function UsClosePage() {
+  let dailyCloseData = usDailyClose;
+
+  try {
+    dailyCloseData = await getUsCloseFromApi();
+  } catch {
+    dailyCloseData = usDailyClose;
+  }
+
+  const updated = dailyCloseData.status === "updated";
+  const failed = dailyCloseData.status === "failed";
   const statusText = updated ? "已更新" : failed ? "更新失败" : "等待更新";
   const statusVariant = updated ? "success" : failed ? "destructive" : "warning";
-  const totalCloseValue = usDailyClose.quotes.reduce((sum, quote) => {
+  const totalCloseValue = dailyCloseData.quotes.reduce((sum, quote) => {
     const holding = usHoldings.find((item) => item.code === quote.symbol);
     return sum + quote.close * (holding?.quantity ?? 0);
   }, 0);
 
-  const watchItems = usDailyClose.quotes
+  const watchItems = dailyCloseData.quotes
     .filter((quote) => operationLines[quote.symbol])
     .map((quote) => {
       const line = operationLines[quote.symbol];
@@ -41,7 +52,7 @@ export default function UsClosePage() {
               <h1 className="text-2xl font-black tracking-tight">美股每日收盘价</h1>
               <Badge variant={statusVariant}>{statusText}</Badge>
             </div>
-            <p className="mt-1 text-sm text-slate-500">由扣子每日收盘后更新 · GitHub 提交 · Vercel 自动部署</p>
+            <p className="mt-1 text-sm text-slate-500">每天收盘后自动调用 API 或回退本地静态占位数据 · Vercel 自动触发</p>
           </div>
           <a href="/" className="inline-flex shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-medium shadow-sm transition hover:bg-slate-50">
             <ArrowLeft className="mr-1 h-4 w-4" />返回
@@ -51,13 +62,13 @@ export default function UsClosePage() {
         <Card className={updated ? "border-emerald-200 bg-emerald-50" : failed ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><DatabaseZap className="h-5 w-5" />收盘价更新状态</CardTitle>
-            <CardDescription>{usDailyClose.description}</CardDescription>
+            <CardDescription>{dailyCloseData.description}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 text-sm sm:grid-cols-2">
-            <MiniMetric label="版本" value={usDailyClose.version} />
-            <MiniMetric label="交易日" value={usDailyClose.tradingDate || "等待扣子写入"} />
-            <MiniMetric label="更新时间" value={usDailyClose.updatedAt} />
-            <MiniMetric label="数据源" value={usDailyClose.source} />
+            <MiniMetric label="版本" value={dailyCloseData.version} />
+            <MiniMetric label="交易日" value={dailyCloseData.tradingDate || "等待更新"} />
+            <MiniMetric label="更新时间" value={dailyCloseData.updatedAt} />
+            <MiniMetric label="数据源" value={dailyCloseData.source} />
           </CardContent>
         </Card>
 
@@ -67,7 +78,7 @@ export default function UsClosePage() {
             <CardDescription>按收盘价 × 当前静态持仓股数估算，不代表实时账户净值。</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-3">
-            <MiniMetric label="覆盖标的" value={`${usDailyClose.quotes.length} 只`} />
+            <MiniMetric label="覆盖标的" value={`${dailyCloseData.quotes.length} 只`} />
             <MiniMetric label="收盘价估算市值" value={formatUsd(totalCloseValue)} />
             <MiniMetric label="状态" value={statusText} />
           </CardContent>
@@ -76,7 +87,7 @@ export default function UsClosePage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><ShieldAlert className="h-5 w-5" />操作线触发复核</CardTitle>
-            <CardDescription>扣子更新收盘价后，先看 AMD、ANET、META 是否触发纪律线。</CardDescription>
+            <CardDescription>收盘后查看 AMD、ANET、META 是否触发纪律线。</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3">
             {watchItems.map((item) => (
@@ -101,10 +112,10 @@ export default function UsClosePage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><CalendarCheck className="h-5 w-5" />收盘价明细</CardTitle>
-            <CardDescription>扣子以后只需要更新这里对应的数据文件。</CardDescription>
+            <CardDescription>平台自动显示收盘价，失败回退静态占位数据。</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
-            {usDailyClose.quotes.map((quote) => {
+            {dailyCloseData.quotes.map((quote) => {
               const holding = usHoldings.find((item) => item.code === quote.symbol);
               const holdingValue = quote.close * (holding?.quantity ?? 0);
               return (
