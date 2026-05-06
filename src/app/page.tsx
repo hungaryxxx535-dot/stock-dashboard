@@ -183,6 +183,11 @@ function Overview({ totals, cash, cashPct, riskLight, todayCommand }: { totals: 
     { label: "现金垫", value: `${formatCny(cash)} · ${formatPct(cashPct)}`, hint: "用于回撤防守", icon: Banknote },
     { label: "风险灯", value: riskLight, hint: riskLight === "黄灯" ? "先防守，不追高" : "按计划执行", icon: ShieldAlert },
   ];
+  const reviewItems = [
+    `券商账户仓位 ${accountSnapshot.aShare.brokerPositionPct.toFixed(1)}%，是否需要防回撤`,
+    "科创芯50、科创半导、科创200、澜起科技合计仓位偏高，是否需要分批锁盈",
+    "美股 ANET 新仓浮亏，AMD 大涨，是否需要分别设置止损 / 移动止盈",
+  ];
 
   return (
     <div className="space-y-4">
@@ -207,6 +212,34 @@ function Overview({ totals, cash, cashPct, riskLight, todayCommand }: { totals: 
           );
         })}
       </div>
+
+      <Card className="border-blue-100 bg-blue-50/70">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5" />数据状态</CardTitle>
+          <CardDescription>当前网页只做持仓和风险框架参考，买卖判断必须结合实时盘面。</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-2 text-sm text-slate-700">
+          <p><span className="font-bold text-slate-900">A股：</span>{dataVersion.aShare}</p>
+          <p><span className="font-bold text-slate-900">美股：</span>{dataVersion.us}</p>
+          <p><span className="font-bold text-slate-900">状态：</span>静态持仓，不是实时行情。</p>
+          <p><span className="font-bold text-slate-900">提醒：</span>{dataVersion.description}</p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>今日复核清单</CardTitle>
+          <CardDescription>每天打开作战台，先看这三件事，再决定是否操作。</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-2 text-sm">
+          {reviewItems.map((item, index) => (
+            <div key={item} className="flex gap-3 rounded-2xl bg-slate-50 p-3">
+              <Badge variant="secondary" className="h-fit shrink-0">{index + 1}</Badge>
+              <p className="font-medium text-slate-700">{item}</p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-3 md:grid-cols-3">
         <MetricCard label="A股市值" value={formatCny(totals.aShareValue)} sub={`盈亏 ${formatCny(totals.aSharePnl)}`} />
@@ -342,13 +375,23 @@ function RiskPage({ totals, cash, todayCommand }: { totals: PortfolioTotals; cas
     { title: "单日大涨后是否追高", status: "执行", danger: true, description: "大涨日只更新止盈线与减仓计划，不做情绪化追单。" },
     { title: "是否需要减仓降低集中度", status: totals.stockPosition > 78 ? "执行" : "观察", danger: totals.stockPosition > 78, description: "优先从浮盈较大、相关性重叠的科技仓中分批降低集中度。" },
   ];
+  const watchList = [
+    "科创芯50：第一大仓，冲高不追",
+    "澜起科技：浮盈大，适合移动止盈",
+    "科创半导：与科创芯50高度相关",
+    "科创200：弹性仓，看回撤承接",
+    "AMD：强势贡献仓，看移动止盈",
+    "ANET：新仓浮亏，看止损线",
+    "META：美股第一大仓，看单票集中风险",
+  ];
 
   return (
     <div className="space-y-4">
       <Card className="border-amber-200 bg-amber-50">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5" />今日是否适合操作</CardTitle>
+          <CardTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5" />当前风险结论</CardTitle>
           <CardDescription className="text-amber-800">{todayCommand}</CardDescription>
+          <p className="text-sm text-amber-800">当前不是满仓口径，但券商账户仓位已经达到 {accountSnapshot.aShare.brokerPositionPct.toFixed(1)}%，A股核心风险来自科创、半导体、AI 方向高度集中。今日大涨后不宜追高，优先做锁盈和仓位保护。</p>
           <p className="text-sm text-amber-800">券商账户仓位高，但整体资金口径不是满仓，场外有约{(accountSnapshot.aShare.offsiteCash / 10000).toFixed(0)}万机动资金。</p>
         </CardHeader>
       </Card>
@@ -366,6 +409,17 @@ function RiskPage({ totals, cash, todayCommand }: { totals: PortfolioTotals; cas
           </Card>
         ))}
       </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>重点盯盘对象</CardTitle>
+          <CardDescription>这些是当前组合里最容易影响账户波动的核心点。</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-2 text-sm sm:grid-cols-2">
+          {watchList.map((item) => (
+            <div key={item} className="rounded-2xl bg-slate-50 p-3 font-medium text-slate-700">{item}</div>
+          ))}
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader>
           <CardTitle>三项静态判断</CardTitle>
@@ -388,6 +442,17 @@ function RiskPage({ totals, cash, todayCommand }: { totals: PortfolioTotals; cas
 }
 
 function RecordsPage() {
+  const updateFlow = [
+    "收盘后上传 A股持仓截图",
+    "美股盘后或北京时间早上上传美股持仓截图",
+    "更新 src/data/portfolio.ts",
+    "检查 A股代码、数量、成本、现价、盈亏",
+    "检查美股新增 / 减仓标的",
+    "合并或直接提交",
+    "等 Vercel 自动部署",
+    "刷新网页验收数据版本",
+  ];
+
   return (
     <div className="space-y-3">
       <div>
@@ -403,6 +468,20 @@ function RecordsPage() {
           <p>1. 大涨不追高，只记录减仓与锁盈条件。</p>
           <p>2. 科技仓重叠时，优先降低集中度而不是继续加码。</p>
           <p>3. 现金垫低于 10% 时，暂停新增仓位。</p>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>每日更新流程</CardTitle>
+          <CardDescription>后续每次更新持仓，都按这个顺序验收，避免旧数据混进网页。</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-2 text-sm">
+          {updateFlow.map((item, index) => (
+            <div key={item} className="flex gap-3 rounded-2xl bg-slate-50 p-3">
+              <Badge variant="secondary" className="h-fit shrink-0">{index + 1}</Badge>
+              <p className="font-medium text-slate-700">{item}</p>
+            </div>
+          ))}
         </CardContent>
       </Card>
       {operationRecords.map((item) => (
@@ -427,6 +506,16 @@ function RecordsPage() {
 }
 
 function SettingsPage({ cash, setCash, usdRate, setUsdRate }: { cash: number; setCash: (value: number) => void; usdRate: number; setUsdRate: (value: number) => void }) {
+  const roadmap = [
+    ["阶段1", "静态持仓展示", "已完成"],
+    ["阶段2", "持仓数据配置化", "已完成"],
+    ["阶段3", "每日更新流程化", "当前阶段"],
+    ["阶段4", "手动表格导入", "待做"],
+    ["阶段5", "接入实时行情 API", "待做"],
+    ["阶段6", "接入 Gmail / 扣子日报同步", "待做"],
+    ["阶段7", "增加风险提醒推送", "待做"],
+  ];
+
   return (
     <div className="space-y-4">
       <Card>
@@ -462,6 +551,22 @@ function SettingsPage({ cash, setCash, usdRate, setUsdRate }: { cash: number; se
               <p key={note}>{note}</p>
             ))}
           </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>后续升级路线</CardTitle>
+          <CardDescription>先把静态更新流程跑顺，再考虑接入真实行情和自动化。</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-2 text-sm">
+          {roadmap.map(([stage, title, status]) => (
+            <div key={stage} className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 p-3">
+              <div>
+                <p className="font-bold text-slate-900">{stage}：{title}</p>
+              </div>
+              <Badge variant={status === "当前阶段" ? "warning" : status === "已完成" ? "success" : "outline"}>{status}</Badge>
+            </div>
+          ))}
         </CardContent>
       </Card>
     </div>
