@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { ArrowLeft, Gauge, ShieldAlert, Target, TrendingUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { aShareHoldings, accountSnapshot, dataVersion, usHoldings } from "@/data/portfolio";
@@ -83,11 +82,9 @@ export default function TradePlanPage() {
             </div>
             <p className="mt-1 text-sm text-slate-500">独立页面 · 临时参数 · 不自动交易 · 不接实时行情</p>
           </div>
-          <Button asChild variant="outline" className="shrink-0 rounded-full">
-            <a href="/">
-              <ArrowLeft className="mr-1 h-4 w-4" />返回
-            </a>
-          </Button>
+          <a className="inline-flex shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-medium shadow-sm transition hover:bg-slate-50" href="/">
+            <ArrowLeft className="mr-1 h-4 w-4" />返回
+          </a>
         </header>
 
         <Card className="border-slate-900 bg-slate-950 text-white">
