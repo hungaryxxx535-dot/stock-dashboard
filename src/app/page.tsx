@@ -20,10 +20,19 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  aShareHoldings,
+  accountSnapshot,
+  dataVersion,
+  operationRecords,
+  portfolioParams,
+  settingsNotes,
+  usHoldings,
+} from "@/data/portfolio";
+import type { AShareHolding, Suggestion, UsHolding } from "@/data/portfolio";
 import { cn } from "@/lib/utils";
 
 type TabId = "overview" | "a-share" | "us" | "risk" | "records" | "settings";
-type Suggestion = "持有" | "观察" | "分批锁盈" | "谨慎" | "加仓候选";
 
 type PortfolioTotals = {
   aShareValue: number;
@@ -36,69 +45,12 @@ type PortfolioTotals = {
   techConcentration: number;
   maxHoldingPct: number;
 };
-
-type AShareHolding = {
-  name: string;
-  code: string;
-  quantity: number;
-  costPrice: number;
-  currentPrice: number;
-  marketValue: number;
-  pnl: number;
-  type: "核心仓" | "趋势仓" | "防守仓" | "观察仓";
-  suggestion: Suggestion;
-  note: string;
-};
-
-type UsHolding = {
-  name: string;
-  code: string;
-  quantity: number;
-  costPrice: number;
-  currentPrice: number;
-  marketValue: number;
-  pnl: number;
-  stopLoss: number;
-  targetPrice: number;
-  trend: string;
-  type: "核心仓" | "中概仓" | "趋势仓" | "观察仓" | "杠杆仓";
-  note: string;
-};
-
 type RiskCheck = {
   title: string;
   status: "警惕" | "执行" | "观察";
   danger: boolean;
   description: string;
 };
-
-const aShareHoldings: AShareHolding[] = [
-  { name: "科创芯50", code: "588750", quantity: 204151, costPrice: 0.99, currentPrice: 1.25, marketValue: 255188, pnl: 53186, type: "核心仓", suggestion: "持有", note: "芯片主线底仓，仓位偏重，避免追高。" },
-  { name: "科创半导", code: "588170", quantity: 236778, costPrice: 0.85, currentPrice: 0.95, marketValue: 223989, pnl: 22037, type: "核心仓", suggestion: "持有", note: "与科创芯50相关度高，合并看集中度。" },
-  { name: "科创200", code: "588220", quantity: 182947, costPrice: 0.82, currentPrice: 0.88, marketValue: 161255, pnl: 11813, type: "核心仓", suggestion: "观察", note: "弹性仓，回撤时看承接。" },
-  { name: "澜起科技", code: "688008", quantity: 1582, costPrice: 55.42, currentPrice: 89.43, marketValue: 141479, pnl: 53818, type: "核心仓", suggestion: "分批锁盈", note: "单票盈利丰厚，适合用移动止盈保护利润。" },
-  { name: "通信ETF", code: "515880", quantity: 29750, costPrice: 1.09, currentPrice: 2.13, marketValue: 63279, pnl: 30990, type: "趋势仓", suggestion: "分批锁盈", note: "趋势强但浮盈大，回落破位减。" },
-  { name: "AI创业板", code: "159381", quantity: 46244, costPrice: 0.94, currentPrice: 1.12, marketValue: 51744, pnl: 8269, type: "趋势仓", suggestion: "观察", note: "AI弹性补充，控制节奏。" },
-  { name: "招商银行", code: "600036", quantity: 2700, costPrice: 35.33, currentPrice: 34.93, marketValue: 94320, pnl: -1083, type: "防守仓", suggestion: "持有", note: "组合稳定器，承担防守和分红属性。" },
-  { name: "黄金ETF / 有色ETF", code: "518880 / 159980", quantity: 2632, costPrice: 3.41, currentPrice: 6.23, marketValue: 16386, pnl: 7416, type: "防守仓", suggestion: "持有", note: "风险对冲资产，不追涨，主要用于平滑组合波动。" },
-];
-
-const usHoldings: UsHolding[] = [
-  { name: "Meta Platforms", code: "META", quantity: 24, costPrice: 472, currentPrice: 607.75, marketValue: 14586, pnl: 3258, stopLoss: 540, targetPrice: 680, trend: "上升趋势，核心持有", type: "核心仓", note: "美股核心锚。" },
-  { name: "腾讯音乐", code: "TME", quantity: 500, costPrice: 7.62, currentPrice: 9.04, marketValue: 4522, pnl: 712, stopLoss: 8.1, targetPrice: 10.8, trend: "温和上行", type: "中概仓", note: "中概仓位，关注汇率和监管情绪。" },
-  { name: "AMD", code: "AMD", quantity: 8, costPrice: 286, currentPrice: 351.63, marketValue: 2813, pnl: 525, stopLoss: 315, targetPrice: 395, trend: "高波动趋势", type: "趋势仓", note: "AI芯片弹性仓，避免放大亏损。" },
-  { name: "Amphenol", code: "APH", quantity: 23, costPrice: 118.2, currentPrice: 144.3, marketValue: 3319, pnl: 600, stopLoss: 128, targetPrice: 158, trend: "核心趋势", type: "核心仓", note: "连接器龙头，偏稳。" },
-  { name: "Rambus", code: "RMBS", quantity: 11, costPrice: 91, currentPrice: 111, marketValue: 1221, pnl: 220, stopLoss: 98, targetPrice: 128, trend: "观察上行", type: "观察仓", note: "小仓观察。" },
-  { name: "Intel", code: "INTC", quantity: 4, costPrice: 78, currentPrice: 98.75, marketValue: 395, pnl: 83, stopLoss: 86, targetPrice: 115, trend: "剩余趋势仓", type: "趋势仓", note: "已减半，剩余小仓趋势仓。" },
-  { name: "拼多多", code: "PDD", quantity: 4, costPrice: 86, currentPrice: 98.75, marketValue: 395, pnl: 51, stopLoss: 88, targetPrice: 118, trend: "观察修复", type: "观察仓", note: "中概小仓观察。" },
-  { name: "Direxion MSFT 2X", code: "MSFU", quantity: 23, costPrice: 23, currentPrice: 27.91, marketValue: 642, pnl: 113, stopLoss: 24.5, targetPrice: 32, trend: "杠杆仓，高风险", type: "杠杆仓", note: "严格小仓，不能补跌。" },
-];
-
-const records = [
-  { date: "2026-05-06", market: "A股", symbol: "澜起科技", action: "卖出计划", reason: "浮盈较大，防单票回撤", result: "触发冲高分批锁盈，不追求卖在最高点。" },
-  { date: "2026-05-06", market: "A股", symbol: "通信ETF", action: "观察", reason: "趋势强但已经大涨", result: "只做止盈预案，不新增追高仓。" },
-  { date: "2026-05-06", market: "美股", symbol: "META / AMD", action: "持有", reason: "核心仓趋势仍在", result: "用止损线管理，不因盘中波动随意加仓。" },
-];
 
 const tabs: { id: TabId; label: string; icon: ElementType }[] = [
   { id: "overview", label: "总览", icon: Home },
@@ -115,8 +67,8 @@ const formatPct = (value: number) => `${value.toFixed(1)}%`;
 
 export default function StockDashboard() {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
-  const [cash, setCash] = useState(128000);
-  const [usdRate, setUsdRate] = useState(7.2);
+  const [cash, setCash] = useState(portfolioParams.cash);
+  const [usdRate, setUsdRate] = useState(portfolioParams.usdRate);
 
   const totals = useMemo<PortfolioTotals>(() => {
     const aShareValue = aShareHoldings.reduce((sum, item) => sum + item.marketValue, 0);
@@ -147,8 +99,8 @@ export default function StockDashboard() {
   }, [cash, usdRate]);
 
   const cashPct = (cash / totals.totalAssets) * 100;
-  const riskLight = totals.techConcentration > 62 || totals.stockPosition > 80 ? "黄灯" : "绿灯";
-  const todayCommand = riskLight === "黄灯" ? "今日总指令：不追高，优先看减仓与锁盈。" : "今日总指令：按计划持有，等待更高胜率信号。";
+  const riskLight = totals.techConcentration > portfolioParams.riskThresholds.techConcentrationYellow || totals.stockPosition > portfolioParams.riskThresholds.stockPositionYellow ? "黄灯" : "绿灯";
+  const todayCommand = riskLight === portfolioParams.riskLight ? portfolioParams.todayCommand : "今日总指令：按计划持有，等待更高胜率信号。";
 
   return (
     <main className="min-h-screen bg-slate-100 pb-28 text-slate-950">
@@ -381,12 +333,12 @@ function RiskPage({ totals, cash, todayCommand }: { totals: PortfolioTotals; cas
   const cashPct = (cash / totals.totalAssets) * 100;
   const items = [
     { label: "整体股票仓位", value: formatPct(totals.stockPosition), danger: totals.stockPosition > 78, note: "超过 80% 不宜追高加仓。" },
-    { label: "科创/科技集中度", value: formatPct(totals.techConcentration), danger: totals.techConcentration > 62, note: "芯片、AI、通信、美股科技相关度高。" },
+    { label: "科创/科技集中度", value: formatPct(totals.techConcentration), danger: totals.techConcentration > portfolioParams.riskThresholds.techConcentrationYellow, note: "芯片、AI、通信、美股科技相关度高。" },
     { label: "单票集中风险", value: formatPct(totals.maxHoldingPct), danger: totals.maxHoldingPct > 16, note: "单一标的过大时优先锁盈。" },
-    { label: "现金垫是否充足", value: formatPct(cashPct), danger: cashPct < 10, note: "现金不足会降低应对回撤能力。" },
+    { label: "现金垫是否充足", value: formatPct(cashPct), danger: cashPct < portfolioParams.riskThresholds.cashPctWarning, note: "现金不足会降低应对回撤能力。" },
   ];
   const checks: RiskCheck[] = [
-    { title: "科技仓位是否过高", status: totals.techConcentration > 62 ? "警惕" : "观察", danger: totals.techConcentration > 62, description: "科创、AI、通信与美股科技相关性高，集中度过高时不再叠加同方向仓位。" },
+    { title: "科技仓位是否过高", status: totals.techConcentration > portfolioParams.riskThresholds.techConcentrationYellow ? "警惕" : "观察", danger: totals.techConcentration > portfolioParams.riskThresholds.techConcentrationYellow, description: "科创、AI、通信与美股科技相关性高，集中度过高时不再叠加同方向仓位。" },
     { title: "单日大涨后是否追高", status: "执行", danger: true, description: "大涨日只更新止盈线与减仓计划，不做情绪化追单。" },
     { title: "是否需要减仓降低集中度", status: totals.stockPosition > 78 ? "执行" : "观察", danger: totals.stockPosition > 78, description: "优先从浮盈较大、相关性重叠的科技仓中分批降低集中度。" },
   ];
@@ -397,6 +349,7 @@ function RiskPage({ totals, cash, todayCommand }: { totals: PortfolioTotals; cas
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5" />今日是否适合操作</CardTitle>
           <CardDescription className="text-amber-800">{todayCommand}</CardDescription>
+          <p className="text-sm text-amber-800">券商账户仓位高，但整体资金口径不是满仓，场外有约{(accountSnapshot.aShare.offsiteCash / 10000).toFixed(0)}万机动资金。</p>
         </CardHeader>
       </Card>
       <div className="grid gap-3 md:grid-cols-2">
@@ -452,7 +405,7 @@ function RecordsPage() {
           <p>3. 现金垫低于 10% 时，暂停新增仓位。</p>
         </CardContent>
       </Card>
-      {records.map((item) => (
+      {operationRecords.map((item) => (
         <Card key={`${item.date}-${item.symbol}`}>
           <CardContent className="p-4">
             <div className="flex items-start justify-between gap-3">
@@ -497,10 +450,18 @@ function SettingsPage({ cash, setCash, usdRate, setUsdRate }: { cash: number; se
           <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5" />静态 MVP 说明</CardTitle>
           <CardDescription>当前版本为静态 MVP，使用模拟数据 / Mock 数据与手动参数，不连接数据库、不接真实行情 API、不包含登录。</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-2 text-sm text-slate-600">
-          <p>后续可接入实时行情 API，用于刷新 A股与美股价格、涨跌幅和止损提醒。</p>
-          <p>后续可接入个人持仓数据，用于同步真实仓位、现金、交易记录与风险敞口。</p>
-          <p>本轮仅做 UI 微调，保持 Vercel 静态部署能力。</p>
+        <CardContent className="grid gap-3 text-sm text-slate-600">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <p className="font-bold text-slate-900">数据版本</p>
+            <p>A股：{dataVersion.aShare}</p>
+            <p>美股：{dataVersion.us}</p>
+            <p>{dataVersion.description}</p>
+          </div>
+          <div className="grid gap-2">
+            {settingsNotes.map((note) => (
+              <p key={note}>{note}</p>
+            ))}
+          </div>
         </CardContent>
       </Card>
     </div>
