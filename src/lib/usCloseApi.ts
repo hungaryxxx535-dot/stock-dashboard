@@ -1,7 +1,9 @@
 import { usDailyClose } from "@/data/usDailyClose";
 import type { UsDailyCloseData, UsDailyCloseQuote } from "@/data/usDailyClose";
 
-const US_CLOSE_SYMBOLS: Pick<UsDailyCloseQuote, "symbol" | "name">[] = [
+// Twelve Data free tier may limit requests to 8 credits per minute.
+// Keep API auto-refresh to 8 core symbols and show the smallest non-core position from local fallback.
+const US_CLOSE_API_SYMBOLS: Pick<UsDailyCloseQuote, "symbol" | "name">[] = [
   { symbol: "META", name: "Meta Platforms" },
   { symbol: "AMD", name: "美国超微公司" },
   { symbol: "ANET", name: "Arista Networks" },
@@ -10,8 +12,9 @@ const US_CLOSE_SYMBOLS: Pick<UsDailyCloseQuote, "symbol" | "name">[] = [
   { symbol: "TME", name: "腾讯音乐" },
   { symbol: "PDD", name: "拼多多" },
   { symbol: "INTC", name: "英特尔" },
-  { symbol: "MSFU", name: "Direxion Daily MSFT Bull 2X Shares" },
 ];
+
+const LOCAL_FALLBACK_SYMBOLS = new Set(["MSFU"]);
 
 type TwelveQuoteResponse = {
   symbol?: string;
@@ -50,6 +53,15 @@ function fallbackData(reason: string): UsDailyCloseData {
     status: "failed",
     description: `${reason}。当前显示本地静态占位收盘价，不作为实时或最新收盘价。`,
   };
+}
+
+function localFallbackQuotes(): UsDailyCloseQuote[] {
+  return usDailyClose.quotes
+    .filter((quote) => LOCAL_FALLBACK_SYMBOLS.has(quote.symbol))
+    .map((quote) => ({
+      ...quote,
+      note: "Twelve Data 免费额度限制下暂用本地静态占位；该标的不是核心自动更新票。",
+    }));
 }
 
 async function fetchOneSymbol(symbol: string, name: string, apiKey: string): Promise<{ quote: UsDailyCloseQuote; tradingDate: string }> {
@@ -95,17 +107,19 @@ export async function getUsCloseFromApi(): Promise<UsDailyCloseData> {
   }
 
   try {
-    const results = await Promise.all(US_CLOSE_SYMBOLS.map((item) => fetchOneSymbol(item.symbol, item.name, apiKey)));
+    const results = await Promise.all(US_CLOSE_API_SYMBOLS.map((item) => fetchOneSymbol(item.symbol, item.name, apiKey)));
     const tradingDate = results.find((item) => item.tradingDate)?.tradingDate ?? "";
+    const apiQuotes = results.map((item) => item.quote);
+    const fallbackQuotes = localFallbackQuotes();
 
     return {
       version: `${tradingDate || "最近交易日"} 美股收盘价`,
       tradingDate,
       updatedAt: `${getBeijingNow()} 北京时间`,
-      source: "Twelve Data quote API eod=true",
+      source: "Twelve Data quote API eod=true + local fallback for MSFU",
       status: "updated",
-      description: "平台自动调用美股收盘价 API 获取，失败时回退本地静态占位数据。",
-      quotes: results.map((item) => item.quote),
+      description: "平台自动调用 Twelve Data 获取 8 只核心美股收盘价；为避免免费额度每分钟限制，MSFU 暂用本地静态占位。",
+      quotes: [...apiQuotes, ...fallbackQuotes],
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "未知 API 错误";
