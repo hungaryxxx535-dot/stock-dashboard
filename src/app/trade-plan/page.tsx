@@ -17,6 +17,11 @@ type TradePlan = {
 
 type MarketMode = "strong" | "flat" | "down";
 
+type IntradayNote = {
+  observation: string;
+  decision: string;
+};
+
 const defaultTradePlan: TradePlan = {
   lqTechTrailingStop: 185,
   kcChipWatchPrice: 2.05,
@@ -42,6 +47,7 @@ const formatAmount = (value: number) => `¥${Math.round(value).toLocaleString("z
 export default function TradePlanPage() {
   const [tradePlan, setTradePlan] = useState<TradePlan>(defaultTradePlan);
   const [marketMode, setMarketMode] = useState<MarketMode>("flat");
+  const [intradayNote, setIntradayNote] = useState<IntradayNote>({ observation: "", decision: "" });
 
   const lq = findAShare("688008");
   const kcChip = findAShare("588750");
@@ -126,6 +132,31 @@ export default function TradePlanPage() {
     },
   ];
 
+  const priorityQueue = [
+    {
+      title: marketMode === "down" ? "第一优先：ANET 风控" : "第一优先：别追高",
+      badge: marketMode === "down" ? "先处理" : "管住手",
+      text: marketMode === "down"
+        ? `ANET 新仓浮亏，若靠近或跌破 ${formatUsd(tradePlan.anetStopLoss)}，先降风险，不补仓摊低。`
+        : "盘面越强，越容易上头。先看已有仓位能不能锁利润，不新增同方向。",
+    },
+    {
+      title: "第二优先：澜起 / AMD 移动止盈",
+      badge: "保护利润",
+      text: `澜起看 ${formatCny(tradePlan.lqTechTrailingStop)}，AMD 看 ${formatUsd(tradePlan.amdTrailingStop)}。触发后不是恐慌卖，是复核是否锁一部分利润。`,
+    },
+    {
+      title: "第三优先：科创系集中度",
+      badge: "降重叠",
+      text: `科创芯50观察位 ${formatCny(tradePlan.kcChipWatchPrice)}。如果科创芯50、科创半导、科创200同向走弱，优先合并看风险，不分开幻想。`,
+    },
+    {
+      title: "第四优先：现金垫恢复",
+      badge: "分批做",
+      text: `当前若要恢复目标现金，静态口径还需释放约 ${formatAmount(cashGap)}，分 2-3 次做，不一笔砍完。`,
+    },
+  ];
+
   const releasePlans = [
     `若要把账户内现金恢复到 ${formatPct(tradePlan.cashTargetPct)}，按静态口径约需释放 ${formatAmount(cashGap)}。`,
     `对应账户总资产约 ${formatPct(releasePct)}，可以分 2-3 次完成，不建议一笔砍完。`,
@@ -137,6 +168,8 @@ export default function TradePlanPage() {
     "ANET 如果继续弱，不用补仓摊低成本，先尊重止损线。",
     "现金目标没有恢复前，不做新的大额趋势仓。",
   ];
+
+  const noteTemplate = `盘面状态：${modeOptions.find((item) => item.id === marketMode)?.title ?? "未选择"}\n主动作：${activeModeCopy.title}\n现金缺口：${formatAmount(cashGap)}\n观察：${intradayNote.observation || "未填写"}\n决定：${intradayNote.decision || "未填写"}`;
 
   return (
     <main className="min-h-screen bg-slate-100 px-3 py-4 text-slate-950 sm:px-5">
@@ -193,6 +226,24 @@ export default function TradePlanPage() {
               <p className="mt-2 text-sm text-slate-600">{activeModeCopy.text}</p>
               <p className="mt-2 text-sm font-bold text-slate-800">{activeModeCopy.order}</p>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>盘中执行优先级</CardTitle>
+            <CardDescription>先按顺序看，不要每只票都同时盯。</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            {priorityQueue.map((item, index) => (
+              <div key={item.title} className="rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-black">{index + 1}. {item.title}</p>
+                  <Badge variant={index === 0 ? "warning" : "outline"}>{item.badge}</Badge>
+                </div>
+                <p className="mt-2 text-sm text-slate-600">{item.text}</p>
+              </div>
+            ))}
           </CardContent>
         </Card>
 
@@ -293,6 +344,36 @@ export default function TradePlanPage() {
             {forbiddenActions.map((item) => (
               <div key={item} className="rounded-2xl bg-white/70 p-3 font-medium text-red-800">{item}</div>
             ))}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>盘中记录卡</CardTitle>
+            <CardDescription>先写观察，再写决定。写不清楚，就先不动。</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 text-sm">
+            <label className="grid gap-2 font-medium">
+              我现在看到的盘面
+              <textarea
+                className="min-h-24 rounded-2xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-slate-400"
+                placeholder="比如：科创芯50放量但没有跌破观察位，澜起还在止盈线上方，ANET继续弱。"
+                value={intradayNote.observation}
+                onChange={(event) => setIntradayNote({ ...intradayNote, observation: event.target.value })}
+              />
+            </label>
+            <label className="grid gap-2 font-medium">
+              我准备执行的动作
+              <textarea
+                className="min-h-24 rounded-2xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-slate-400"
+                placeholder="比如：不加仓；若澜起跌破185，先锁一部分；ANET跌破150不补仓。"
+                value={intradayNote.decision}
+                onChange={(event) => setIntradayNote({ ...intradayNote, decision: event.target.value })}
+              />
+            </label>
+            <div className="whitespace-pre-line rounded-2xl bg-slate-50 p-3 font-medium text-slate-700">
+              {noteTemplate}
+            </div>
           </CardContent>
         </Card>
 
