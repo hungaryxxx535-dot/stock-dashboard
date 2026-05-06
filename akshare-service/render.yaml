@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: fei-stock-akshare-api
+    runtime: docker
+    dockerfilePath: ./akshare-service/Dockerfile
+    dockerContext: ./akshare-service
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: CACHE_SECONDS
+        value: "30"
+      - key: ALLOWED_ORIGINS
+        value: "*"
+      - key: AKSHARE_SERVICE_TOKEN
+        generateValue: true
