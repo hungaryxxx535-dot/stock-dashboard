@@ -22,7 +22,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
       <body>
         {children}
         <a
-          href="/trade-plan"
+          href="/trade-plan-v2"
           className="fixed bottom-24 right-4 z-40 rounded-full bg-slate-950 px-4 py-3 text-sm font-black text-white shadow-xl shadow-slate-900/20 transition hover:bg-slate-800"
         >
           操作线
