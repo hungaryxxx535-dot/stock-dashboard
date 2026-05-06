@@ -17,22 +17,23 @@ export type UsDailyCloseData = {
   quotes: UsDailyCloseQuote[];
 };
 
+// Deployment trigger: used to refresh Vercel after TWELVE_DATA_API_KEY configuration.
 export const usDailyClose: UsDailyCloseData = {
-  version: "等待扣子首次更新",
+  version: "等待 API 首次更新",
   tradingDate: "",
   updatedAt: "尚未更新",
-  source: "Coze daily close update",
+  source: "Local static fallback",
   status: "waiting",
-  description: "这是美股每日收盘价数据文件。后续由扣子在美股收盘后更新本文件，Vercel 自动部署后平台读取最新收盘价。当前数值先沿用静态持仓口径，仅用于页面占位。",
+  description: "这是美股每日收盘价本地回退数据文件。平台优先调用 Twelve Data API 获取收盘价；API Key 缺失或接口失败时，才会显示本文件中的静态占位数据。",
   quotes: [
-    { symbol: "META", name: "Meta Platforms", close: 605.5, changePct: null, currency: "USD", note: "静态持仓占位，等待扣子收盘更新" },
-    { symbol: "AMD", name: "美国超微公司", close: 417.01, changePct: null, currency: "USD", note: "静态持仓占位，等待扣子收盘更新" },
-    { symbol: "ANET", name: "Arista Networks", close: 156.49, changePct: null, currency: "USD", note: "静态持仓占位，等待扣子收盘更新" },
-    { symbol: "APH", name: "安费诺", close: 138, changePct: null, currency: "USD", note: "静态持仓占位，等待扣子收盘更新" },
-    { symbol: "RMBS", name: "Rambus", close: 125.05, changePct: null, currency: "USD", note: "静态持仓占位，等待扣子收盘更新" },
-    { symbol: "TME", name: "腾讯音乐", close: 9.26, changePct: null, currency: "USD", note: "静态持仓占位，等待扣子收盘更新" },
-    { symbol: "PDD", name: "拼多多", close: 97.2, changePct: null, currency: "USD", note: "静态持仓占位，等待扣子收盘更新" },
-    { symbol: "INTC", name: "英特尔", close: 112.5, changePct: null, currency: "USD", note: "静态持仓占位，等待扣子收盘更新" },
-    { symbol: "MSFU", name: "Direxion Daily MSFT Bull 2X Shares", close: 27.72, changePct: null, currency: "USD", note: "静态持仓占位，等待扣子收盘更新" }
+    { symbol: "META", name: "Meta Platforms", close: 605.5, changePct: null, currency: "USD", note: "静态占位，等待 API 自动更新" },
+    { symbol: "AMD", name: "美国超微公司", close: 417.01, changePct: null, currency: "USD", note: "静态占位，等待 API 自动更新" },
+    { symbol: "ANET", name: "Arista Networks", close: 156.49, changePct: null, currency: "USD", note: "静态占位，等待 API 自动更新" },
+    { symbol: "APH", name: "安费诺", close: 138, changePct: null, currency: "USD", note: "静态占位，等待 API 自动更新" },
+    { symbol: "RMBS", name: "Rambus", close: 125.05, changePct: null, currency: "USD", note: "静态占位，等待 API 自动更新" },
+    { symbol: "TME", name: "腾讯音乐", close: 9.26, changePct: null, currency: "USD", note: "静态占位，等待 API 自动更新" },
+    { symbol: "PDD", name: "拼多多", close: 97.2, changePct: null, currency: "USD", note: "静态占位，等待 API 自动更新" },
+    { symbol: "INTC", name: "英特尔", close: 112.5, changePct: null, currency: "USD", note: "静态占位，等待 API 自动更新" },
+    { symbol: "MSFU", name: "Direxion Daily MSFT Bull 2X Shares", close: 27.72, changePct: null, currency: "USD", note: "静态占位，等待 API 自动更新" }
   ],
 };
