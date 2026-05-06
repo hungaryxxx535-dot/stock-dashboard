@@ -1,0 +1,1 @@
+{"name":"next","version":"0.0.0-local","bin":{"next":"bin/next.mjs"},"types":"index.d.ts","type":"module"}
