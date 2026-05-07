@@ -17,6 +17,7 @@ type HealthData = {
 
 const formatPrice = (value: number | null) => (value === null ? "-" : value.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 3 }));
 const formatPct = (value: number | null) => (value === null ? "-" : `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`);
+const formatCny = (value: number | null) => value === null ? "-" : `¥${Math.round(value).toLocaleString("zh-CN")}`;
 const formatAmount = (value: number | null) => {
   if (value === null) return "-";
   if (Math.abs(value) >= 100000000) return `${(value / 100000000).toFixed(2)} 亿`;
@@ -104,10 +105,21 @@ export default async function ALivePage() {
   }
 
   const updated = liveData.status === "updated";
-  const totalTrackedValue = liveData.quotes.reduce((sum, quote) => {
+  const tracked = liveData.quotes.map((quote) => {
     const holding = aShareHoldings.find((item) => item.code === quote.symbol);
-    return sum + (quote.price ?? holding?.currentPrice ?? 0) * (holding?.quantity ?? 0);
-  }, 0);
+    const price = quote.price ?? holding?.currentPrice ?? 0;
+    const quantity = holding?.quantity ?? 0;
+    const cost = holding?.costPrice ?? 0;
+    const value = price * quantity;
+    const costAmount = cost * quantity;
+    const pnl = value - costAmount;
+    return { quote, holding, value, costAmount, pnl };
+  });
+
+  const totalTrackedValue = tracked.reduce((sum, item) => sum + item.value, 0);
+  const totalTrackedCost = tracked.reduce((sum, item) => sum + item.costAmount, 0);
+  const totalTrackedPnl = totalTrackedValue - totalTrackedCost;
+  const totalTrackedPnlPct = totalTrackedCost > 0 ? (totalTrackedPnl / totalTrackedCost) * 100 : null;
 
   const triggeredItems = liveData.quotes
     .filter((quote) => operationLines[quote.symbol])
@@ -126,9 +138,9 @@ export default async function ALivePage() {
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-black tracking-tight">A股盘中观察</h1>
-              <Badge variant={updated ? "success" : "destructive"}>{updated ? "已连接" : "静态回退"}</Badge>
+              <Badge variant={updated ? "success" : "destructive"}>{updated ? "已连接" : "持仓快照回退"}</Badge>
             </div>
-            <p className="mt-1 text-sm text-slate-500">AKShare / 东方财富公开行情 · 仅用于盘中观察</p>
+            <p className="mt-1 text-sm text-slate-500">行情价格自动刷新；持仓数量和成本价来自手动维护清单。</p>
           </div>
           <a href="/" className="inline-flex shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-medium shadow-sm transition hover:bg-slate-50">
             <ArrowLeft className="mr-1 h-4 w-4" />返回
@@ -146,22 +158,25 @@ export default async function ALivePage() {
             <MiniMetric label="检查时间" value={healthData.checkedAt} />
             <MiniMetric label="Render 地址" value={healthData.akshareApiUrl ?? "未配置"} />
             <MiniMetric label="上游 HTTP" value={healthData.upstreamStatus ? String(healthData.upstreamStatus) : "-"} />
-            <MiniMetric label="前端动作" value={healthData.ok ? "读取实时观察数据" : "使用静态回退"} />
+            <MiniMetric label="前端动作" value={healthData.ok ? "读取行情并自动估算盈亏" : "使用持仓快照回退"} />
           </CardContent>
         </Card>
 
         <Card className={updated ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><DatabaseZap className="h-5 w-5" />行情连接状态</CardTitle>
+            <CardTitle className="flex items-center gap-2"><DatabaseZap className="h-5 w-5" />行情连接与盈亏估算</CardTitle>
             <CardDescription>{liveData.disclaimer}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 text-sm sm:grid-cols-3">
-            <MiniMetric label="状态" value={updated ? "AKShare 已连接" : "静态持仓回退"} />
+            <MiniMetric label="状态" value={updated ? "AKShare 已连接" : "持仓快照回退"} />
             <MiniMetric label="更新时间" value={liveData.updatedAt || "-"} />
             <MiniMetric label="数据源" value={liveData.source} />
             <MiniMetric label="覆盖标的" value={`${liveData.quoteCount || liveData.quotes.length} 只`} />
             <MiniMetric label="缓存" value={liveData.cacheHit ? "命中缓存" : "最新请求"} />
-            <MiniMetric label="追踪市值估算" value={`¥${Math.round(totalTrackedValue).toLocaleString("zh-CN")}`} />
+            <MiniMetric label="追踪市值估算" value={formatCny(totalTrackedValue)} />
+            <MiniMetric label="追踪成本估算" value={formatCny(totalTrackedCost)} />
+            <MiniMetric label="自动估算盈亏" value={`${totalTrackedPnl >= 0 ? "+" : ""}${formatCny(totalTrackedPnl)}`} />
+            <MiniMetric label="估算收益率" value={formatPct(totalTrackedPnlPct)} />
           </CardContent>
         </Card>
 
@@ -192,8 +207,8 @@ export default async function ALivePage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><TrendingUp className="h-5 w-5" />核心持仓行情</CardTitle>
-            <CardDescription>当前只覆盖主仓和重点观察仓；失败时自动回退到静态持仓。</CardDescription>
+            <CardTitle className="flex items-center gap-2"><TrendingUp className="h-5 w-5" />核心持仓行情与盈亏</CardTitle>
+            <CardDescription>最新价自动匹配手动持仓数量和成本价，生成估算市值与浮盈亏。</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
             {liveData.quotes.map((quote) => <QuoteCard key={quote.symbol} quote={quote} />)}
@@ -207,7 +222,13 @@ export default async function ALivePage() {
 function QuoteCard({ quote }: { quote: ALiveQuote }) {
   const positive = (quote.changePct ?? 0) >= 0;
   const holding = aShareHoldings.find((item) => item.code === quote.symbol);
-  const estimatedValue = (quote.price ?? holding?.currentPrice ?? 0) * (holding?.quantity ?? 0);
+  const quantity = holding?.quantity ?? 0;
+  const costPrice = holding?.costPrice ?? 0;
+  const price = quote.price ?? holding?.currentPrice ?? 0;
+  const estimatedValue = price * quantity;
+  const costAmount = costPrice * quantity;
+  const estimatedPnl = estimatedValue - costAmount;
+  const estimatedPnlPct = costAmount > 0 ? (estimatedPnl / costAmount) * 100 : null;
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-3">
@@ -222,14 +243,14 @@ function QuoteCard({ quote }: { quote: ALiveQuote }) {
         <MiniMetric label="最新价" value={formatPrice(quote.price)} />
         <MiniMetric label="涨跌额" value={formatPrice(quote.change)} />
         <MiniMetric label="涨跌幅" value={formatPct(quote.changePct)} />
-        <MiniMetric label="今开" value={formatPrice(quote.open)} />
-        <MiniMetric label="最高" value={formatPrice(quote.high)} />
-        <MiniMetric label="最低" value={formatPrice(quote.low)} />
+        <MiniMetric label="持仓数量" value={quantity.toLocaleString("zh-CN")} />
+        <MiniMetric label="成本价" value={formatPrice(costPrice)} />
+        <MiniMetric label="估算盈亏" value={`${estimatedPnl >= 0 ? "+" : ""}${formatCny(estimatedPnl)}`} />
+        <MiniMetric label="估算收益率" value={formatPct(estimatedPnlPct)} />
+        <MiniMetric label="估算市值" value={formatCny(estimatedValue)} />
         <MiniMetric label="成交额" value={formatAmount(quote.amount)} />
-        <MiniMetric label="成交量" value={formatAmount(quote.volume)} />
-        <MiniMetric label="估算市值" value={`¥${Math.round(estimatedValue).toLocaleString("zh-CN")}`} />
       </div>
-      {quote.error && <p className="mt-3 rounded-2xl bg-amber-50 p-3 text-xs font-medium text-amber-800">该标的当前使用静态持仓回退，不是实时行情。</p>}
+      {quote.error && <p className="mt-3 rounded-2xl bg-amber-50 p-3 text-xs font-medium text-amber-800">该标的当前使用持仓快照回退，不是实时行情；连通后会按最新价重新估算盈亏。</p>}
     </div>
   );
 }
