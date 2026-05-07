@@ -1,10 +1,19 @@
-import { ArrowLeft, DatabaseZap, ShieldAlert, TrendingUp } from "lucide-react";
+import { ArrowLeft, DatabaseZap, HeartPulse, ShieldAlert, TrendingUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { aShareHoldings } from "@/data/portfolio";
 import { getALiveQuotes, type ALiveData, type ALiveQuote } from "@/lib/aLiveApi";
 
 export const dynamic = "force-dynamic";
+
+type HealthData = {
+  ok: boolean;
+  status: string;
+  message?: string;
+  akshareApiUrl?: string;
+  upstreamStatus?: number;
+  checkedAt: string;
+};
 
 const formatPrice = (value: number | null) => (value === null ? "-" : value.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 3 }));
 const formatPct = (value: number | null) => (value === null ? "-" : `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`);
@@ -15,6 +24,63 @@ const formatAmount = (value: number | null) => {
   return value.toLocaleString("zh-CN");
 };
 
+const getBeijingNow = () =>
+  new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(new Date());
+
+async function getHealthStatus(): Promise<HealthData> {
+  const baseUrl = process.env.AKSHARE_API_URL;
+  const token = process.env.AKSHARE_SERVICE_TOKEN;
+
+  if (!baseUrl) {
+    return {
+      ok: false,
+      status: "missing_env",
+      message: "缺少 AKSHARE_API_URL，Render 的 AKShare Python 服务尚未接入。",
+      checkedAt: `${getBeijingNow()} 北京时间`,
+    };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/health`, {
+      cache: "no-store",
+      signal: controller.signal,
+      headers: token ? { "x-service-token": token } : undefined,
+    });
+
+    return {
+      ok: response.ok,
+      status: response.ok ? "connected" : "upstream_error",
+      akshareApiUrl: baseUrl,
+      upstreamStatus: response.status,
+      checkedAt: `${getBeijingNow()} 北京时间`,
+      message: response.ok ? "AKShare Python 服务已连通。" : `AKShare 服务返回 HTTP ${response.status}`,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "未知错误";
+    return {
+      ok: false,
+      status: "connection_failed",
+      akshareApiUrl: baseUrl,
+      message,
+      checkedAt: `${getBeijingNow()} 北京时间`,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 const operationLines: Record<string, { label: string; line: number; rule: string }> = {
   "688008": { label: "澜起科技移动止盈线", line: 185, rule: "跌破后第二天优先复核是否锁部分利润。" },
   "588750": { label: "科创芯50观察位", line: 2.05, rule: "跌破后重点看科技集中度是否需要降。" },
@@ -22,6 +88,7 @@ const operationLines: Record<string, { label: string; line: number; rule: string
 };
 
 export default async function ALivePage() {
+  const healthData = await getHealthStatus();
   let liveData: ALiveData;
   try {
     liveData = await getALiveQuotes();
@@ -67,6 +134,21 @@ export default async function ALivePage() {
             <ArrowLeft className="mr-1 h-4 w-4" />返回
           </a>
         </header>
+
+        <Card className={healthData.ok ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50"}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><HeartPulse className="h-5 w-5" />AKShare 服务健康检查</CardTitle>
+            <CardDescription>{healthData.message ?? "服务状态检查完成。"}</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 text-sm sm:grid-cols-3">
+            <MiniMetric label="服务状态" value={healthData.ok ? "已连通" : "未连通"} />
+            <MiniMetric label="状态码" value={healthData.status} />
+            <MiniMetric label="检查时间" value={healthData.checkedAt} />
+            <MiniMetric label="Render 地址" value={healthData.akshareApiUrl ?? "未配置"} />
+            <MiniMetric label="上游 HTTP" value={healthData.upstreamStatus ? String(healthData.upstreamStatus) : "-"} />
+            <MiniMetric label="前端动作" value={healthData.ok ? "读取实时观察数据" : "使用静态回退"} />
+          </CardContent>
+        </Card>
 
         <Card className={updated ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}>
           <CardHeader>
