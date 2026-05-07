@@ -17,7 +17,7 @@ export type UsDailyCloseData = {
   quotes: UsDailyCloseQuote[];
 };
 
-// Deployment trigger: refresh Vercel after AKSHARE_API_URL configuration.
+// Deployment trigger: refresh Vercel after AKSHARE_API_URL value fix.
 export const usDailyClose: UsDailyCloseData = {
   version: "等待 API 首次更新",
   tradingDate: "",
