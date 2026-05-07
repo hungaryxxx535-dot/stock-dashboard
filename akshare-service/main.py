@@ -6,13 +6,14 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+import akshare as ak
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 CACHE_SECONDS = int(os.getenv("CACHE_SECONDS", "30"))
 SERVICE_TOKEN = os.getenv("AKSHARE_SERVICE_TOKEN", "")
-ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "*").split(",") if origin.strip()]
+ALLOWED_ORIGINS = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",") if x.strip()]
 
 WATCHLIST: List[Dict[str, str]] = [
     {"code": "588750", "name": "科创芯50", "type": "etf", "role": "第一大仓 / 科创芯片"},
@@ -27,40 +28,28 @@ WATCHLIST: List[Dict[str, str]] = [
     {"code": "512400", "name": "有色ETF", "type": "etf", "role": "资源 / 防守观察"},
 ]
 
-_cache: Dict[str, Any] = {"spot": None, "spot_at": 0.0}
-
-app = FastAPI(
-    title="非哥 A股行情服务",
-    description="A股盘中观察服务：轻量请求东方财富公开行情，统一输出给股票作战台。",
-    version="0.2.0",
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS if ALLOWED_ORIGINS != ["*"] else ["*"],
-    allow_credentials=False,
-    allow_methods=["GET"],
-    allow_headers=["*"],
-)
+_cache: Dict[str, Any] = {"a": None, "a_at": 0.0, "hk": None, "hk_at": 0.0}
+app = FastAPI(title="非哥行情服务", description="A股与港股观察服务", version="0.3.0")
+app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS if ALLOWED_ORIGINS != ["*"] else ["*"], allow_credentials=False, allow_methods=["GET"], allow_headers=["*"])
 
 
 def beijing_now() -> str:
     return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def require_token(x_service_token: Optional[str]) -> None:
-    if not SERVICE_TOKEN:
-        return
-    if x_service_token != SERVICE_TOKEN:
-        raise HTTPException(status_code=401, detail="Invalid AKSHARE_SERVICE_TOKEN")
+def require_token(value: Optional[str]) -> None:
+    if SERVICE_TOKEN and value != SERVICE_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid service token")
 
 
 def safe_float(value: Any) -> Optional[float]:
-    if value is None or value == "-" or value == "":
+    if value is None or value in ("", "-", "--"):
         return None
     try:
-        parsed = float(value)
-        return parsed if parsed == parsed else None
+        if isinstance(value, str):
+            value = value.replace("%", "").replace(",", "").strip()
+        result = float(value)
+        return result if result == result else None
     except Exception:
         return None
 
@@ -69,118 +58,72 @@ def safe_str(value: Any) -> str:
     return "" if value is None else str(value)
 
 
-def eastmoney_market_prefix(code: str) -> str:
-    # EastMoney secid: 1 = Shanghai, 0 = Shenzhen.
-    if code.startswith(("5", "6", "9")):
-        return "1"
-    return "0"
+def pick(row: Any, names: List[str], default: Any = None) -> Any:
+    for name in names:
+        try:
+            value = row.get(name) if hasattr(row, "get") else row[name]
+            if value is not None and safe_str(value) not in ("", "nan"):
+                return value
+        except Exception:
+            pass
+    return default
 
 
-def build_secids() -> str:
-    return ",".join(f"{eastmoney_market_prefix(item['code'])}.{item['code']}" for item in WATCHLIST)
+def market_prefix(code: str) -> str:
+    return "1" if code.startswith(("5", "6", "9")) else "0"
 
 
-def fetch_eastmoney_quotes() -> Dict[str, Any]:
+def hk_code(value: Any) -> str:
+    raw = safe_str(value).upper().replace("HK.", "").replace(".HK", "")
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    return digits.zfill(5) if digits else raw.strip()
+
+
+def fetch_a_raw() -> Dict[str, Any]:
     fields = "f12,f14,f2,f3,f4,f17,f15,f16,f18,f5,f6,f8,f7"
-    params = urlencode({
-        "fltt": "2",
-        "invt": "2",
-        "fields": fields,
-        "secids": build_secids(),
-    })
-    url = f"https://push2.eastmoney.com/api/qt/ulist.np/get?{params}"
-    request = Request(
-        url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (compatible; fei-stock-dashboard/0.2)",
-            "Referer": "https://quote.eastmoney.com/",
-        },
-    )
-    with urlopen(request, timeout=12) as response:
-        raw = response.read().decode("utf-8")
-    return json.loads(raw)
+    secids = ",".join(f"{market_prefix(x['code'])}.{x['code']}" for x in WATCHLIST)
+    params = urlencode({"fltt": "2", "invt": "2", "fields": fields, "secids": secids})
+    req = Request(f"https://push2.eastmoney.com/api/qt/ulist.np/get?{params}", headers={"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/"})
+    with urlopen(req, timeout=12) as res:
+        return json.loads(res.read().decode("utf-8"))
 
 
-def normalize_quote(row: Dict[str, Any], item: Dict[str, str]) -> Dict[str, Any]:
-    return {
-        "symbol": item["code"],
-        "name": safe_str(row.get("f14")) or item["name"],
-        "type": item["type"],
-        "role": item.get("role", ""),
-        "price": safe_float(row.get("f2")),
-        "changePct": safe_float(row.get("f3")),
-        "change": safe_float(row.get("f4")),
-        "open": safe_float(row.get("f17")),
-        "high": safe_float(row.get("f15")),
-        "low": safe_float(row.get("f16")),
-        "preClose": safe_float(row.get("f18")),
-        "amount": safe_float(row.get("f6")),
-        "volume": safe_float(row.get("f5")),
-        "turnover": safe_float(row.get("f8")),
-        "amplitude": safe_float(row.get("f7")),
-        "sourceName": safe_str(row.get("f14")),
-    }
+def a_quote(row: Dict[str, Any], item: Dict[str, str]) -> Dict[str, Any]:
+    return {"symbol": item["code"], "name": safe_str(row.get("f14")) or item["name"], "type": item["type"], "role": item.get("role", ""), "price": safe_float(row.get("f2")), "changePct": safe_float(row.get("f3")), "change": safe_float(row.get("f4")), "open": safe_float(row.get("f17")), "high": safe_float(row.get("f15")), "low": safe_float(row.get("f16")), "preClose": safe_float(row.get("f18")), "amount": safe_float(row.get("f6")), "volume": safe_float(row.get("f5")), "turnover": safe_float(row.get("f8")), "amplitude": safe_float(row.get("f7")), "sourceName": safe_str(row.get("f14"))}
 
 
-def build_quotes() -> Dict[str, Any]:
-    payload = fetch_eastmoney_quotes()
-    diff = payload.get("data", {}).get("diff", []) if isinstance(payload, dict) else []
-    rows = {safe_str(row.get("f12")): row for row in diff if isinstance(row, dict)}
-
-    quotes: List[Dict[str, Any]] = []
-    missing: List[Dict[str, str]] = []
-
+def build_a() -> Dict[str, Any]:
+    raw = fetch_a_raw()
+    diff = raw.get("data", {}).get("diff", []) if isinstance(raw, dict) else []
+    rows = {safe_str(x.get("f12")): x for x in diff if isinstance(x, dict)}
+    quotes = []
+    missing = []
     for item in WATCHLIST:
-        code = item["code"]
-        row = rows.get(code)
-        if row is None:
-            missing.append(item)
-            quotes.append({
-                "symbol": code,
-                "name": item["name"],
-                "type": item["type"],
-                "role": item.get("role", ""),
-                "price": None,
-                "changePct": None,
-                "change": None,
-                "open": None,
-                "high": None,
-                "low": None,
-                "preClose": None,
-                "amount": None,
-                "volume": None,
-                "turnover": None,
-                "amplitude": None,
-                "sourceName": "",
-                "error": "not_found_in_eastmoney_response",
-            })
+        row = rows.get(item["code"])
+        if row:
+            quotes.append(a_quote(row, item))
         else:
-            quotes.append(normalize_quote(row, item))
+            missing.append(item)
+            quotes.append({"symbol": item["code"], "name": item["name"], "type": item["type"], "role": item.get("role", ""), "price": None, "changePct": None, "change": None, "open": None, "high": None, "low": None, "preClose": None, "amount": None, "volume": None, "turnover": None, "amplitude": None, "sourceName": "", "error": "not_found"})
+    return {"status": "updated", "source": "EastMoney lightweight quote endpoint via Python service", "updatedAt": f"{beijing_now()} 北京时间", "cacheSeconds": CACHE_SECONDS, "quoteCount": len(quotes), "missingCount": len(missing), "missing": missing, "watchlist": WATCHLIST, "quotes": quotes, "disclaimer": "东方财富公开行情源，仅用于盘中观察，不作为唯一交易依据。"}
 
-    return {
-        "status": "updated",
-        "source": "EastMoney lightweight quote endpoint via Python service",
-        "updatedAt": f"{beijing_now()} 北京时间",
-        "cacheSeconds": CACHE_SECONDS,
-        "quoteCount": len(quotes),
-        "missingCount": len(missing),
-        "missing": missing,
-        "watchlist": WATCHLIST,
-        "quotes": quotes,
-        "disclaimer": "东方财富公开行情源，仅用于盘中观察，不作为唯一交易依据。",
-    }
+
+def build_hk(symbols: str) -> Dict[str, Any]:
+    wanted = {hk_code(x) for x in symbols.split(",") if x.strip()}
+    df = ak.stock_hk_spot_em()
+    quotes = []
+    for _, row in df.iterrows():
+        symbol = hk_code(pick(row, ["代码", "证券代码", "symbol", "code"], ""))
+        if wanted and symbol not in wanted:
+            continue
+        name = safe_str(pick(row, ["名称", "股票名称", "name"], symbol)) or symbol
+        quotes.append({"symbol": symbol, "name": name, "type": "stock", "role": "港股行情", "price": safe_float(pick(row, ["最新价", "现价", "最新"], None)), "changePct": safe_float(pick(row, ["涨跌幅", "涨幅"], None)), "change": safe_float(pick(row, ["涨跌额", "涨跌"], None)), "open": safe_float(pick(row, ["今开", "开盘"], None)), "high": safe_float(pick(row, ["最高"], None)), "low": safe_float(pick(row, ["最低"], None)), "preClose": safe_float(pick(row, ["昨收"], None)), "amount": safe_float(pick(row, ["成交额"], None)), "volume": safe_float(pick(row, ["成交量"], None)), "sourceName": name})
+    return {"status": "updated", "source": "AKShare stock_hk_spot_em / 东方财富港股行情", "updatedAt": f"{beijing_now()} 北京时间", "cacheSeconds": CACHE_SECONDS, "quoteCount": len(quotes), "quotes": quotes, "disclaimer": "港股行情来自 AKShare/公开行情接口，仅用于持仓观察和盈亏估算，不代表券商账户实时同步。"}
 
 
 @app.get("/health")
 def health() -> Dict[str, Any]:
-    return {
-        "status": "ok",
-        "service": "fei-stock-akshare-api",
-        "mode": "lightweight-eastmoney",
-        "time": f"{beijing_now()} 北京时间",
-        "cacheSeconds": CACHE_SECONDS,
-        "watchlistCount": len(WATCHLIST),
-    }
+    return {"status": "ok", "service": "fei-stock-akshare-api", "mode": "a-share + hk", "time": f"{beijing_now()} 北京时间", "cacheSeconds": CACHE_SECONDS, "watchlistCount": len(WATCHLIST), "hkEndpoint": "/api/hk/spot"}
 
 
 @app.get("/api/a/watchlist")
@@ -190,35 +133,41 @@ def get_watchlist(x_service_token: Optional[str] = Header(default=None)) -> Dict
 
 
 @app.get("/api/a/spot")
-def a_spot(
-    force: bool = Query(default=False, description="是否强制绕过缓存重新拉取行情"),
-    x_service_token: Optional[str] = Header(default=None),
-):
+def a_spot(force: bool = Query(default=False), x_service_token: Optional[str] = Header(default=None)):
     require_token(x_service_token)
-
     now = time.time()
-    if not force and _cache["spot"] and now - float(_cache["spot_at"]) < CACHE_SECONDS:
-        cached = dict(_cache["spot"])
-        cached["cacheHit"] = True
-        cached["servedAt"] = f"{beijing_now()} 北京时间"
-        return JSONResponse(content=cached)
-
+    if not force and _cache["a"] and now - float(_cache["a_at"]) < CACHE_SECONDS:
+        data = dict(_cache["a"])
+        data["cacheHit"] = True
+        data["servedAt"] = f"{beijing_now()} 北京时间"
+        return JSONResponse(content=data)
     try:
-        data = build_quotes()
+        data = build_a()
         data["cacheHit"] = False
         data["servedAt"] = f"{beijing_now()} 北京时间"
-        _cache["spot"] = data
-        _cache["spot_at"] = now
+        _cache["a"] = data
+        _cache["a_at"] = now
         return JSONResponse(content=data)
     except Exception as exc:
-        return JSONResponse(
-            status_code=500,
-            content={
-                "status": "failed",
-                "source": "EastMoney lightweight quote endpoint via Python service",
-                "updatedAt": f"{beijing_now()} 北京时间",
-                "error": str(exc),
-                "quotes": [],
-                "disclaimer": "公开行情源可能短暂波动，失败时前端应回退静态持仓。",
-            },
-        )
+        return JSONResponse(status_code=500, content={"status": "failed", "source": "A-share quote service", "updatedAt": f"{beijing_now()} 北京时间", "error": str(exc), "quotes": [], "disclaimer": "公开行情源可能短暂波动，失败时前端应回退静态持仓。"})
+
+
+@app.get("/api/hk/spot")
+def hk_spot(symbols: str = Query(default=""), force: bool = Query(default=False), x_service_token: Optional[str] = Header(default=None)):
+    require_token(x_service_token)
+    cache_key = ",".join(sorted({hk_code(x) for x in symbols.split(",") if x.strip()})) or "all"
+    now = time.time()
+    if not force and _cache["hk"] and _cache["hk"].get("key") == cache_key and now - float(_cache["hk_at"]) < CACHE_SECONDS:
+        data = dict(_cache["hk"]["data"])
+        data["cacheHit"] = True
+        data["servedAt"] = f"{beijing_now()} 北京时间"
+        return JSONResponse(content=data)
+    try:
+        data = build_hk(cache_key if cache_key != "all" else "")
+        data["cacheHit"] = False
+        data["servedAt"] = f"{beijing_now()} 北京时间"
+        _cache["hk"] = {"key": cache_key, "data": data}
+        _cache["hk_at"] = now
+        return JSONResponse(content=data)
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"status": "failed", "source": "AKShare stock_hk_spot_em", "updatedAt": f"{beijing_now()} 北京时间", "error": str(exc), "quotes": [], "disclaimer": "AKShare 港股公开行情源可能短暂波动，失败时前端应回退本地持仓。"})
