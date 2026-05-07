@@ -3,7 +3,7 @@ services:
     name: fei-stock-akshare-api
     runtime: docker
     dockerfilePath: ./akshare-service/Dockerfile
-    dockerContext: ./akshare-service
+    dockerContext: .
     plan: free
     autoDeploy: true
     healthCheckPath: /health
