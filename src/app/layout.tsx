@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "非哥股票作战台",
-  description: "手机优先的股票持仓 Dashboard / A股盘中与美股收盘行情已接入",
+  description: "手机优先的股票持仓 Dashboard / A股盘中、美股收盘与港股模块",
   manifest: "/manifest.json",
   appleWebApp: { capable: true, statusBarStyle: "default", title: "股票作战台" },
 };
@@ -31,7 +31,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
     while ((node = walker.nextNode())) {
       var text = node.nodeValue || "";
       if (text === "模拟数据 / Mock 数据") node.nodeValue = "持仓总览 / 行情已接入";
-      if (text === "静态 MVP · 手机端以底部导航为主 · 不接真实行情") node.nodeValue = "首页为静态持仓总览 · A股盘中与美股收盘已接入行情";
+      if (text === "静态 MVP · 手机端以底部导航为主 · 不接真实行情") node.nodeValue = "首页为静态持仓总览 · A股盘中、美股收盘与港股模块已配置";
       if (text === "静态持仓，不是实时行情。") node.nodeValue = "首页持仓为静态总览；实时行情请点右下角 A股盘中 / 美股收盘。";
       if (text === "A股静态持仓") node.nodeValue = "A股持仓总览";
       if (text === "按第一轮 MVP 指定清单展示，价格与盈亏均为模拟数据。") node.nodeValue = "这里是持仓结构总览；盘中实时价格请点右下角 A股盘中查看。";
@@ -66,6 +66,12 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
             className="rounded-full bg-emerald-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-emerald-900/20 transition hover:bg-emerald-700"
           >
             A股盘中
+          </a>
+          <a
+            href="/hk"
+            className="rounded-full bg-amber-500 px-4 py-3 text-sm font-black text-white shadow-xl shadow-amber-900/20 transition hover:bg-amber-600"
+          >
+            港股
           </a>
           <a
             href="/us-close"
