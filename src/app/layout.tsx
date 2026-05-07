@@ -42,14 +42,45 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
       if (text === "用于记录买卖原因和结果复盘，MVP 先使用静态数据。") node.nodeValue = "用于记录买卖原因和结果复盘；行情页已单独接入实时/收盘数据。";
     }
   }
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", replaceText);
-  } else {
-    replaceText();
+
+  function injectHongKongTab() {
+    if (location.pathname !== "/") return;
+    if (document.querySelector('[data-hk-bottom-tab="true"]')) return;
+
+    var bottomNav = document.querySelector('nav[aria-label="底部主导航"]');
+    if (!bottomNav) return;
+    var grid = bottomNav.querySelector('div');
+    if (!grid) return;
+
+    grid.classList.remove('grid-cols-6');
+    grid.classList.add('grid-cols-7');
+
+    var buttons = Array.prototype.slice.call(grid.children);
+    var aShareButton = buttons.find(function (el) { return (el.textContent || '').indexOf('A股') >= 0; });
+    var usButton = buttons.find(function (el) { return (el.textContent || '').indexOf('美股') >= 0; });
+    if (!aShareButton || !usButton) return;
+
+    var hk = document.createElement('a');
+    hk.href = '/hk';
+    hk.setAttribute('data-hk-bottom-tab', 'true');
+    hk.className = 'flex flex-col items-center justify-center gap-1 rounded-2xl px-1 py-2 text-[11px] font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-950';
+    hk.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5"><line x1="3" x2="21" y1="22" y2="22"></line><line x1="6" x2="6" y1="18" y2="11"></line><line x1="10" x2="10" y1="18" y2="11"></line><line x1="14" x2="14" y1="18" y2="11"></line><line x1="18" x2="18" y1="18" y2="11"></line><polygon points="12 2 20 7 4 7"></polygon></svg><span>港股</span>';
+    grid.insertBefore(hk, usButton);
   }
-  setTimeout(replaceText, 300);
-  setTimeout(replaceText, 1200);
-  setTimeout(replaceText, 2500);
+
+  function run() {
+    replaceText();
+    injectHongKongTab();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", run);
+  } else {
+    run();
+  }
+  setTimeout(run, 300);
+  setTimeout(run, 1200);
+  setTimeout(run, 2500);
 })();
             `,
           }}
@@ -66,12 +97,6 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
             className="rounded-full bg-emerald-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-emerald-900/20 transition hover:bg-emerald-700"
           >
             A股盘中
-          </a>
-          <a
-            href="/hk"
-            className="rounded-full bg-amber-500 px-4 py-3 text-sm font-black text-white shadow-xl shadow-amber-900/20 transition hover:bg-amber-600"
-          >
-            港股
           </a>
           <a
             href="/us-close"
