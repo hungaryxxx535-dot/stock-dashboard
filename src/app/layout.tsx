@@ -23,6 +23,12 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
         {children}
         <div className="fixed bottom-24 right-4 z-40 flex flex-col items-end gap-2">
           <a
+            href="/system-status"
+            className="rounded-full bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-blue-900/20 transition hover:bg-blue-700"
+          >
+            系统状态
+          </a>
+          <a
             href="/a-live"
             className="rounded-full bg-emerald-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-emerald-900/20 transition hover:bg-emerald-700"
           >
