@@ -29,10 +29,22 @@ export default async function UsClosePage() {
   const failed = dailyCloseData.status === "failed";
   const statusText = updated ? "已更新" : failed ? "更新失败" : "等待更新";
   const statusVariant = updated ? "success" : failed ? "destructive" : "warning";
-  const totalCloseValue = dailyCloseData.quotes.reduce((sum, quote) => {
+
+  const tracked = dailyCloseData.quotes.map((quote) => {
     const holding = usHoldings.find((item) => item.code === quote.symbol);
-    return sum + quote.close * (holding?.quantity ?? 0);
-  }, 0);
+    const quantity = holding?.quantity ?? 0;
+    const costPrice = holding?.costPrice ?? 0;
+    const holdingValue = quote.close * quantity;
+    const costAmount = costPrice * quantity;
+    const pnl = holdingValue - costAmount;
+    const pnlPct = costAmount > 0 ? (pnl / costAmount) * 100 : null;
+    return { quote, holding, quantity, costPrice, holdingValue, costAmount, pnl, pnlPct };
+  });
+
+  const totalCloseValue = tracked.reduce((sum, item) => sum + item.holdingValue, 0);
+  const totalCostAmount = tracked.reduce((sum, item) => sum + item.costAmount, 0);
+  const totalPnl = totalCloseValue - totalCostAmount;
+  const totalPnlPct = totalCostAmount > 0 ? (totalPnl / totalCostAmount) * 100 : null;
 
   const watchItems = dailyCloseData.quotes
     .filter((quote) => operationLines[quote.symbol])
@@ -52,7 +64,7 @@ export default async function UsClosePage() {
               <h1 className="text-2xl font-black tracking-tight">美股每日收盘价</h1>
               <Badge variant={statusVariant}>{statusText}</Badge>
             </div>
-            <p className="mt-1 text-sm text-slate-500">每天收盘后自动调用 API 或回退本地静态占位数据 · Vercel 自动触发</p>
+            <p className="mt-1 text-sm text-slate-500">收盘价自动匹配手动持仓数量和成本价，生成估算市值与浮盈亏。</p>
           </div>
           <a href="/" className="inline-flex shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-medium shadow-sm transition hover:bg-slate-50">
             <ArrowLeft className="mr-1 h-4 w-4" />返回
@@ -74,12 +86,15 @@ export default async function UsClosePage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><TrendingUp className="h-5 w-5" />美股持仓收盘市值估算</CardTitle>
-            <CardDescription>按收盘价 × 当前静态持仓股数估算，不代表实时账户净值。</CardDescription>
+            <CardTitle className="flex items-center gap-2"><TrendingUp className="h-5 w-5" />美股持仓收盘盈亏估算</CardTitle>
+            <CardDescription>持仓数量和成本价来自手动维护清单；收盘价由接口更新，失败时回退本地占位。</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-3">
             <MiniMetric label="覆盖标的" value={`${dailyCloseData.quotes.length} 只`} />
             <MiniMetric label="收盘价估算市值" value={formatUsd(totalCloseValue)} />
+            <MiniMetric label="估算成本" value={formatUsd(totalCostAmount)} />
+            <MiniMetric label="自动估算盈亏" value={`${totalPnl >= 0 ? "+" : ""}${formatUsd(totalPnl)}`} />
+            <MiniMetric label="估算收益率" value={formatPct(totalPnlPct)} />
             <MiniMetric label="状态" value={statusText} />
           </CardContent>
         </Card>
@@ -111,13 +126,12 @@ export default async function UsClosePage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><CalendarCheck className="h-5 w-5" />收盘价明细</CardTitle>
-            <CardDescription>平台自动显示收盘价，失败回退静态占位数据。</CardDescription>
+            <CardTitle className="flex items-center gap-2"><CalendarCheck className="h-5 w-5" />收盘价与盈亏明细</CardTitle>
+            <CardDescription>价格自动更新后，系统按收盘价 × 持仓数量重新估算市值和浮盈亏。</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
-            {dailyCloseData.quotes.map((quote) => {
-              const holding = usHoldings.find((item) => item.code === quote.symbol);
-              const holdingValue = quote.close * (holding?.quantity ?? 0);
+            {tracked.map((item) => {
+              const quote = item.quote;
               return (
                 <div key={quote.symbol} className="rounded-2xl border border-slate-200 bg-white p-3">
                   <div className="flex items-start justify-between gap-3">
@@ -125,11 +139,15 @@ export default async function UsClosePage() {
                       <p className="font-black">{quote.symbol}</p>
                       <p className="text-xs text-slate-500">{quote.name}</p>
                     </div>
-                    <Badge variant={quote.changePct !== null && quote.changePct < 0 ? "warning" : "outline"}>{formatPct(quote.changePct)}</Badge>
+                    <Badge variant={item.pnl >= 0 ? "success" : "warning"}>{item.pnl >= 0 ? "浮盈" : "浮亏"}</Badge>
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                     <MiniMetric label="收盘价" value={formatUsd(quote.close)} />
-                    <MiniMetric label="持仓估值" value={formatUsd(holdingValue)} />
+                    <MiniMetric label="持仓数量" value={`${item.quantity} 股`} />
+                    <MiniMetric label="成本价" value={formatUsd(item.costPrice)} />
+                    <MiniMetric label="持仓估值" value={formatUsd(item.holdingValue)} />
+                    <MiniMetric label="估算盈亏" value={`${item.pnl >= 0 ? "+" : ""}${formatUsd(item.pnl)}`} />
+                    <MiniMetric label="估算收益率" value={formatPct(item.pnlPct)} />
                   </div>
                   {quote.note && <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-xs font-medium text-slate-600">{quote.note}</p>}
                 </div>
