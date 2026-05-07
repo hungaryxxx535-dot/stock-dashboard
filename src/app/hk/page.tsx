@@ -5,7 +5,13 @@ import { getHkLiveQuotes, type HkHoldingBase, type HkLiveQuote } from "@/lib/hkL
 
 export const dynamic = "force-dynamic";
 
-const hkHoldings: HkHoldingBase[] = [];
+const hkHoldings: HkHoldingBase[] = [
+  { name: "建设银行", code: "00939", quantity: 1000, costPrice: 5.191, currentPrice: 8.88, currency: "HKD", note: "港股合并口径，按截图录入。" },
+  { name: "腾讯控股", code: "00700", quantity: 700, costPrice: 544.598, currentPrice: 477.4, currency: "HKD", note: "合并口径：平安账户600股 + 富途账户100股；成本价为加权成本。" },
+  { name: "小米集团-W", code: "01810", quantity: 2200, costPrice: 59.102, currentPrice: 31.12, currency: "HKD", note: "港股合并口径，按截图录入。" },
+  { name: "中国心连心化肥", code: "01866", quantity: 1000, costPrice: 11.5, currentPrice: 12.6, currency: "HKD", note: "港股合并口径，按截图录入。" },
+  { name: "南方两倍做多", code: "07709", quantity: 100, costPrice: 23.68, currentPrice: 76.88, currency: "HKD", note: "港股杠杆/做多类标的，波动较大，单独观察。" },
+];
 
 const formatHkd = (value: number | null) => value === null ? "-" : `HK$${value.toLocaleString("zh-HK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const formatPct = (value: number | null) => value === null ? "-" : `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
@@ -111,7 +117,7 @@ export default async function HkPage() {
               <h1 className="text-2xl font-black tracking-tight">港股持仓</h1>
               <Badge variant={updated ? "success" : hkHoldings.length > 0 ? "warning" : "outline"}>{updated ? "AKShare 已连接" : hkHoldings.length > 0 ? "持仓快照回退" : "待录入"}</Badge>
             </div>
-            <p className="mt-1 text-sm text-slate-500">港股共用 AKShare 服务；持仓数量和成本价来自手动维护，行情接入后自动估算盈亏。</p>
+            <p className="mt-1 text-sm text-slate-500">港股共用 AKShare 服务；当前按一个港股大模块合并展示，行情接入后自动估算盈亏。</p>
           </div>
           <a href="/" className="inline-flex shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-medium shadow-sm transition hover:bg-slate-50">
             <ArrowLeft className="mr-1 h-4 w-4" />返回
@@ -151,10 +157,10 @@ export default async function HkPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Landmark className="h-5 w-5" />港股组合估算</CardTitle>
-            <CardDescription>录入港股持仓后，这里会用 AKShare 港股行情自动重算市值、浮盈亏和收益率。</CardDescription>
+            <CardDescription>当前已把不同账户里的同名股票合并为一个港股组合口径。</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 text-sm sm:grid-cols-4">
-            <MiniMetric label="持仓数量" value={`${hkHoldings.length} 只`} />
+            <MiniMetric label="持仓标的" value={`${hkHoldings.length} 只`} />
             <MiniMetric label="估算市值" value={formatHkd(totalValue)} />
             <MiniMetric label="估算成本" value={formatHkd(totalCost)} />
             <MiniMetric label="估算盈亏" value={`${pnl >= 0 ? "+" : ""}${formatHkd(pnl)} / ${formatPct(pnlPct)}`} />
@@ -176,7 +182,7 @@ export default async function HkPage() {
           <Card>
             <CardHeader>
               <CardTitle>港股持仓明细</CardTitle>
-              <CardDescription>按港股持仓底表 + AKShare 港股行情估算。</CardDescription>
+              <CardDescription>按合并后的港股持仓底表 + AKShare 港股行情估算。</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3 sm:grid-cols-2">
               {tracked.map((item) => <HoldingCard key={item.holding.code} item={item} />)}
