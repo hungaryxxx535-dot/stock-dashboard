@@ -33,8 +33,13 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
       if (text === "模拟数据 / Mock 数据") node.nodeValue = "持仓总览 / 行情已接入";
       if (text === "静态 MVP · 手机端以底部导航为主 · 不接真实行情") node.nodeValue = "首页为静态持仓总览 · A股盘中与美股收盘已接入行情";
       if (text === "静态持仓，不是实时行情。") node.nodeValue = "首页持仓为静态总览；实时行情请点右下角 A股盘中 / 美股收盘。";
+      if (text === "A股静态持仓") node.nodeValue = "A股持仓总览";
+      if (text === "按第一轮 MVP 指定清单展示，价格与盈亏均为模拟数据。") node.nodeValue = "这里是持仓结构总览；盘中实时价格请点右下角 A股盘中查看。";
+      if (text === "美股静态持仓") node.nodeValue = "美股持仓总览";
+      if (text === "美元市值按设置中的汇率折算成人民币计算；所有行情为 Mock 数据。") node.nodeValue = "这里是美股持仓结构总览；收盘价请点右下角 美股收盘查看。";
       if (text === "三项静态判断") node.nodeValue = "三项风险判断";
       if (text === "不接实时行情，仅用于第一轮 UI 验收的风险提醒。") node.nodeValue = "首页风险判断基于静态持仓；盘中价格以 A股盘中页为准。";
+      if (text === "用于记录买卖原因和结果复盘，MVP 先使用静态数据。") node.nodeValue = "用于记录买卖原因和结果复盘；行情页已单独接入实时/收盘数据。";
     }
   }
   if (document.readyState === "loading") {
@@ -44,6 +49,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
   }
   setTimeout(replaceText, 300);
   setTimeout(replaceText, 1200);
+  setTimeout(replaceText, 2500);
 })();
             `,
           }}
