@@ -39,7 +39,7 @@ export type OperationRecord = {
 
 export const dataVersion = {
   aShare: "2026-05-07 北京时间16:56 A股持仓截图口径",
-  us: "2026-05-06 北京时间 08:07 美股持仓截图口径",
+  us: "2026-05-07 北京时间17:51 美股持仓截图口径",
   description: "持仓数量和成本价来自手动维护清单；行情页接入价格后自动估算市值与浮盈亏，非券商账户实时同步。",
 };
 
@@ -58,11 +58,11 @@ export const accountSnapshot = {
     note: "券商账户仓位95.9%，账户内现金约6.99万元；整体资金口径仍需纳入场外约30万元机动资金。",
   },
   us: {
-    accountDisplayUsd: 16947.01,
-    holdingsValueUsd: 31184.32,
-    holdingsPnlUsd: 3272.41,
-    todayPnlUsd: 446.52,
-    note: "当前为北京时间截图口径的手动持仓清单；美股收盘页会用接口收盘价自动估算盈亏。",
+    accountDisplayUsd: 17311.05,
+    holdingsValueUsd: 30713.39,
+    holdingsPnlUsd: 3638.48,
+    todayPnlUsd: 20.32,
+    note: "当前为北京时间17:51截图口径的手动持仓清单；美股收盘页会用接口收盘价自动估算盈亏。",
   },
 };
 
@@ -102,21 +102,21 @@ export const aShareHoldings: AShareHolding[] = [
 ];
 
 export const usHoldings: UsHolding[] = [
-  { name: "美国超微公司", code: "AMD", quantity: 8, costPrice: 203.331, currentPrice: 417.01, marketValue: 3336.08, pnl: 1709.43, stopLoss: 380, targetPrice: 450, trend: "高波动趋势", type: "趋势仓", note: "今日贡献最大，AI芯片弹性仓，继续用移动止盈管理。" },
-  { name: "Intel", code: "INTC", quantity: 4, costPrice: 46.169, currentPrice: 112.5, marketValue: 450, pnl: 265.32, stopLoss: 98, targetPrice: 125, trend: "剩余趋势仓", type: "趋势仓", note: "已减半后的剩余小仓，继续按趋势仓处理。" },
-  { name: "Rambus", code: "RMBS", quantity: 11, costPrice: 97.7, currentPrice: 125.05, marketValue: 1375.55, pnl: 300.85, stopLoss: 110, targetPrice: 140, trend: "观察上行", type: "观察仓", note: "小仓观察，跟随半导体存储链节奏。" },
-  { name: "Meta Platforms", code: "META", quantity: 24, costPrice: 602.918, currentPrice: 605.5, marketValue: 14532, pnl: 61.97, stopLoss: 560, targetPrice: 680, trend: "核心持有", type: "核心仓", note: "美股第一大仓，单票占比较高，是账户核心锚。" },
-  { name: "Amphenol", code: "APH", quantity: 23, costPrice: 135.914, currentPrice: 138, marketValue: 3174, pnl: 47.98, stopLoss: 128, targetPrice: 158, trend: "核心趋势", type: "核心仓", note: "连接器龙头，偏稳，但近期弹性弱于AMD。" },
-  { name: "拼多多", code: "PDD", quantity: 4, costPrice: 101.858, currentPrice: 97.2, marketValue: 388.8, pnl: -18.63, stopLoss: 88, targetPrice: 118, trend: "观察修复", type: "观察仓", note: "中概小仓观察。" },
-  { name: "Direxion MSFT 2X", code: "MSFU", quantity: 23, costPrice: 31.767, currentPrice: 27.72, marketValue: 637.56, pnl: -93.08, stopLoss: 24.5, targetPrice: 32, trend: "杠杆仓，高风险", type: "杠杆仓", note: "严格小仓，不能补跌，优先控制风险。" },
-  { name: "Arista Networks", code: "ANET", quantity: 17, costPrice: 174.5, currentPrice: 156.49, marketValue: 2660.33, pnl: -306.17, stopLoss: 150, targetPrice: 174.5, trend: "短线浮亏", type: "趋势仓", note: "新进趋势观察仓，当前浮亏，需重点盯止损与反抽质量。" },
-  { name: "腾讯音乐", code: "TME", quantity: 500, costPrice: 10.5, currentPrice: 9.26, marketValue: 4630, pnl: -620, stopLoss: 8.1, targetPrice: 10.8, trend: "中概修复", type: "中概仓", note: "中概仓位，当前仍浮亏，关注修复持续性。" },
+  { name: "美国超微公司", code: "AMD", quantity: 6, costPrice: 203.331, currentPrice: 419.27, marketValue: 2515.62, pnl: 1295.63, stopLoss: 380, targetPrice: 450, trend: "高波动趋势", type: "趋势仓", note: "已减至6股，AI芯片弹性仓；继续用移动止盈管理，不追高补仓。" },
+  { name: "Intel", code: "INTC", quantity: 4, costPrice: 46.169, currentPrice: 110.98, marketValue: 443.92, pnl: 259.24, stopLoss: 98, targetPrice: 125, trend: "剩余趋势仓", type: "趋势仓", note: "剩余4股小仓趋势仓，继续按纪律线观察。" },
+  { name: "Rambus", code: "RMBS", quantity: 11, costPrice: 97.7, currentPrice: 130.28, marketValue: 1433.08, pnl: 358.38, stopLoss: 115, targetPrice: 145, trend: "观察上行", type: "观察仓", note: "小仓观察，跟随半导体存储链节奏。" },
+  { name: "Meta Platforms", code: "META", quantity: 24, costPrice: 602.918, currentPrice: 613.22, marketValue: 14717.28, pnl: 247.25, stopLoss: 580, targetPrice: 680, trend: "核心持有", type: "核心仓", note: "美股第一大仓，仍是账户核心锚，重点看单票集中风险。" },
+  { name: "Amphenol", code: "APH", quantity: 23, costPrice: 135.914, currentPrice: 139.21, marketValue: 3201.83, pnl: 75.81, stopLoss: 128, targetPrice: 158, trend: "核心趋势", type: "核心仓", note: "连接器龙头，偏稳，作为美股核心趋势仓观察。" },
+  { name: "拼多多", code: "PDD", quantity: 4, costPrice: 101.858, currentPrice: 101.8, marketValue: 407.2, pnl: -0.23, stopLoss: 92, targetPrice: 118, trend: "观察修复", type: "观察仓", note: "中概小仓观察，接近成本线。" },
+  { name: "Direxion MSFT 2X", code: "MSFU", quantity: 23, costPrice: 31.767, currentPrice: 28.37, marketValue: 652.51, pnl: -78.13, stopLoss: 24.5, targetPrice: 32, trend: "杠杆仓，高风险", type: "杠杆仓", note: "严格小仓，不能补跌，优先控制风险。" },
+  { name: "Arista Networks", code: "ANET", quantity: 17, costPrice: 174.5, currentPrice: 148.35, marketValue: 2521.95, pnl: -444.55, stopLoss: 145, targetPrice: 174.5, trend: "短线浮亏", type: "趋势仓", note: "短线趋势观察仓，仍处浮亏，重点盯止损线与反抽质量。" },
+  { name: "腾讯音乐", code: "TME", quantity: 500, costPrice: 10.5, currentPrice: 9.65, marketValue: 4825, pnl: -425, stopLoss: 8.6, targetPrice: 10.8, trend: "中概修复", type: "中概仓", note: "中概仓位，当前仍浮亏，关注修复持续性。" },
 ];
 
 export const operationRecords: OperationRecord[] = [
+  { date: "2026-05-07", market: "美股", symbol: "整体账户", action: "持仓更新", reason: "北京时间17:51截图显示美股市值约30713.39美元，持仓盈亏+3638.48美元，今日盈亏+20.32美元", result: "美股底表已更新；AMD为6股，META仍为第一大仓，ANET和TME仍为主要浮亏观察对象。" },
   { date: "2026-05-07", market: "A股", symbol: "整体账户", action: "持仓更新", reason: "北京时间16:56截图显示券商账户仓位95.9%，当日参考盈亏+32527.35元", result: "持仓底表已更新；无交易变动时后续只需刷新行情即可自动估算盈亏。" },
   { date: "2026-05-07", market: "A股", symbol: "科创芯50/澜起科技/科创半导/科创200", action: "重点观察", reason: "科创核心仓仍是账户主要收益来源，合计仓位较高", result: "继续享受趋势，但账户内仓位接近96%，不再追高叠加同方向仓位。" },
-  { date: "2026-05-06", market: "美股", symbol: "AMD / ANET", action: "趋势复核", reason: "AMD强势贡献，ANET新仓浮亏", result: "AMD用移动止盈保护利润，ANET重点看止损线与反抽质量。" },
 ];
 
 export const settingsNotes = [
