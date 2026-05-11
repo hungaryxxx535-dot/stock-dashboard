@@ -38,24 +38,24 @@ export type OperationRecord = {
 };
 
 export const dataVersion = {
-  aShare: "2026-05-07 北京时间16:56 A股持仓截图口径",
+  aShare: "2026-05-11 北京时间13:52 A股持仓截图口径",
   us: "2026-05-07 北京时间17:51 美股持仓截图口径",
   description: "持仓数量和成本价来自手动维护清单；行情页接入价格后自动估算市值与浮盈亏，非券商账户实时同步。",
 };
 
 export const accountSnapshot = {
   aShare: {
-    totalAssets: 1316590.82,
-    marketValue: 1242890.35,
-    availableCash: 69905.43,
+    totalAssets: 1387613.64,
+    marketValue: 837315.95,
+    availableCash: 550256.74,
     offsiteCash: 300000,
-    totalFlexibleCash: 369905.43,
-    brokerPositionPct: 95.9,
-    overallPositionPct: 76.9,
-    totalPnl: 355867.61,
-    todayPnl: 32527.35,
-    todayPnlPct: 2.53,
-    note: "券商账户仓位95.9%，账户内现金约6.99万元；整体资金口径仍需纳入场外约30万元机动资金。",
+    totalFlexibleCash: 850256.74,
+    brokerPositionPct: 61.9,
+    overallPositionPct: 49.6,
+    totalPnl: 411910.64,
+    todayPnl: 63936.0,
+    todayPnlPct: 4.83,
+    note: "券商账户仓位约61.9%，账户内现金约55.03万元；若纳入此前场外约30万元机动资金，整体A股资金口径股票仓位约49.6%。",
   },
   us: {
     accountDisplayUsd: 17311.05,
@@ -67,38 +67,38 @@ export const accountSnapshot = {
 };
 
 export const portfolioParams = {
-  cash: 369905.43,
+  cash: 850256.74,
   usdRate: 7.2,
   riskThresholds: {
     stockPositionYellow: 80,
     techConcentrationYellow: 62,
     cashPctWarning: 10,
   },
-  todayCommand: "今日总指令：A股继续强势，但账户内仓位接近96%，不追高，优先保护浮盈和控制科技集中度。",
-  riskLight: "黄灯",
+  todayCommand: "今日总指令：A股已明显降仓，现金垫很厚；不急追涨，优先等回踩和高胜率机会，核心仓只做移动止盈和风险跟踪。",
+  riskLight: "绿灯",
 };
 
 export const aShareHoldings: AShareHolding[] = [
-  { name: "科创芯50", code: "588750", quantity: 131300, costPrice: 1.538, currentPrice: 2.22, marketValue: 291486, pnl: 89557.73, type: "核心仓", suggestion: "持有", note: "当前第一大仓，芯片主线底仓，仓位22.5%；继续享受趋势但不追高。" },
-  { name: "澜起科技", code: "688008", quantity: 825, costPrice: 106.255, currentPrice: 209.91, marketValue: 173175.75, pnl: 85514.96, type: "核心仓", suggestion: "分批锁盈", note: "主力核心仓，浮盈接近翻倍，今日继续强势；优先用移动止盈保护利润。" },
-  { name: "科创半导", code: "588170", quantity: 116600, costPrice: 1.732, currentPrice: 2.046, marketValue: 238563.6, pnl: 36612.4, type: "核心仓", suggestion: "持有", note: "与科创芯50高度相关，仓位18.4%；合并看半导体与科创集中度。" },
-  { name: "通信ETF", code: "515880", quantity: 47400, costPrice: 0.681, currentPrice: 1.414, marketValue: 67023.6, pnl: 34734.72, type: "趋势仓", suggestion: "分批锁盈", note: "趋势强、浮盈大，今日仍明显上行；不适合情绪化追高。" },
-  { name: "有色ETF", code: "512400", quantity: 13700, costPrice: 0.229, currentPrice: 2.207, marketValue: 30235.9, pnl: 27093.12, type: "防守仓", suggestion: "观察", note: "资源周期属性，累计浮盈很高，继续观察是否需要锁盈。" },
-  { name: "科创200", code: "588230", quantity: 86100, costPrice: 1.736, currentPrice: 2.01, marketValue: 173061, pnl: 23008.62, type: "核心仓", suggestion: "观察", note: "科创弹性仓，仓位13.3%；今日表现较强，回撤时重点看承接。" },
-  { name: "胜宏科技", code: "300476", quantity: 100, costPrice: 207.937, currentPrice: 338.06, marketValue: 33806, pnl: 13012.29, type: "趋势仓", suggestion: "分批锁盈", note: "PCB/算力方向小仓趋势票，浮盈较大，继续用移动止盈管理。" },
-  { name: "AI创业板", code: "159382", quantity: 19600, costPrice: 2.218, currentPrice: 2.829, marketValue: 55448.4, pnl: 11973.64, type: "趋势仓", suggestion: "观察", note: "AI弹性补充仓，今日强势；与科技主线相关度高。" },
-  { name: "金ETF", code: "159834", quantity: 1600, costPrice: 5.606, currentPrice: 10.341, marketValue: 16545.6, pnl: 7575.68, type: "防守仓", suggestion: "持有", note: "风险对冲资产，用于平滑组合波动，不做追涨。" },
-  { name: "卫星ETF", code: "159206", quantity: 400, costPrice: -12.177, currentPrice: 1.93, marketValue: 772, pnl: 5640.6, type: "观察仓", suggestion: "观察", note: "小仓观察，券商成本为负，按App截图原样记录。" },
-  { name: "欣灵电气", code: "301388", quantity: 100, costPrice: -22.077, currentPrice: 33.35, marketValue: 3335, pnl: 5542.72, type: "观察仓", suggestion: "观察", note: "小仓观察，券商成本为负，按App截图原样记录。" },
-  { name: "海信家电", code: "000921", quantity: 200, costPrice: 0.411, currentPrice: 24.24, marketValue: 4848, pnl: 4765.8, type: "观察仓", suggestion: "观察", note: "小仓观察，累计收益显示较高。" },
-  { name: "五洲新春", code: "603667", quantity: 100, costPrice: 28.168, currentPrice: 71.06, marketValue: 7106, pnl: 4289.2, type: "观察仓", suggestion: "观察", note: "小仓趋势观察，今日涨幅较大。" },
-  { name: "信科移动", code: "688387", quantity: 200, costPrice: 2.069, currentPrice: 20.7, marketValue: 4140, pnl: 3726.28, type: "观察仓", suggestion: "观察", note: "小仓观察，科创通信属性。" },
-  { name: "易天股份", code: "300812", quantity: 100, costPrice: 15.961, currentPrice: 39.75, marketValue: 3975, pnl: 2378.9, type: "观察仓", suggestion: "观察", note: "小仓观察，今日涨幅较大。" },
-  { name: "三变科技", code: "002112", quantity: 100, costPrice: 1.296, currentPrice: 21.27, marketValue: 2127, pnl: 1997.39, type: "观察仓", suggestion: "观察", note: "小仓观察，累计收益显示较高。" },
-  { name: "游戏ETF", code: "159869", quantity: 100, costPrice: -11.117, currentPrice: 1.338, marketValue: 133.8, pnl: 1245.5, type: "观察仓", suggestion: "观察", note: "极小仓，券商成本为负，按App截图原样记录。" },
-  { name: "北新建材", code: "000786", quantity: 300, costPrice: 22.651, currentPrice: 26.56, marketValue: 7968, pnl: 1172.76, type: "防守仓", suggestion: "持有", note: "偏稳健小仓。" },
-  { name: "机器人", code: "562500", quantity: 100, costPrice: -1.474, currentPrice: 1.097, marketValue: 109.7, pnl: 257.1, type: "观察仓", suggestion: "观察", note: "极小仓，券商成本为负，按App截图原样记录。" },
-  { name: "招商银行", code: "600036", quantity: 3400, costPrice: 39.372, currentPrice: 37.95, marketValue: 129030, pnl: -4833.78, type: "防守仓", suggestion: "持有", note: "账户内主要防守仓，今日小幅拖累，仍承担稳定器与分红属性。" },
+  { name: "科创芯50", code: "588750", quantity: 87600, costPrice: 1.18, currentPrice: 2.282, marketValue: 199903.2, pnl: 96508.92, type: "核心仓", suggestion: "持有", note: "当前A股第一大科技底仓，已较前期明显降仓；继续保留核心敞口，不追高加回。" },
+  { name: "招商银行", code: "600036", quantity: 4700, costPrice: 38.972, currentPrice: 37.89, marketValue: 178083, pnl: -5086.34, type: "防守仓", suggestion: "持有", note: "已加至4700股，是账户内重要防守仓；承担稳定器与分红属性，短期仍按防守仓看。" },
+  { name: "科创半导", code: "588170", quantity: 38900, costPrice: 0.998, currentPrice: 2.137, marketValue: 83129.3, pnl: 44326.55, type: "核心仓", suggestion: "持有", note: "半导体核心底仓，数量已明显下降；与科创芯50相关度高，后续不重复追高。" },
+  { name: "通信ETF", code: "515880", quantity: 47400, costPrice: 0.681, currentPrice: 1.478, marketValue: 70057.2, pnl: 37768.32, type: "趋势仓", suggestion: "分批锁盈", note: "趋势仍强、浮盈较大；不新增追高，继续用移动止盈管理。" },
+  { name: "澜起科技", code: "688008", quantity: 275, costPrice: -164.938, currentPrice: 248.45, marketValue: 68323.75, pnl: 113695.56, type: "核心仓", suggestion: "分批锁盈", note: "已大幅降至275股，券商成本显示为负；作为利润仓继续持有，重点看移动止盈。" },
+  { name: "科创200", code: "588230", quantity: 28700, costPrice: 1.096, currentPrice: 2.072, marketValue: 59466.4, pnl: 28016.94, type: "核心仓", suggestion: "观察", note: "科创弹性仓已明显下降；保留观察，回踩承接强再看是否加回。" },
+  { name: "AI创业板", code: "159382", quantity: 19600, costPrice: 2.218, currentPrice: 2.89, marketValue: 56644, pnl: 13169.24, type: "趋势仓", suggestion: "观察", note: "AI弹性补充仓，与科技主线相关度高；不在大涨后主动追高。" },
+  { name: "有色ETF", code: "512400", quantity: 18100, costPrice: 0.705, currentPrice: 2.19, marketValue: 39639, pnl: 26885.74, type: "防守仓", suggestion: "观察", note: "资源周期属性，累计浮盈高；可作为非科技方向分散，但涨高后同样要防回撤。" },
+  { name: "胜宏科技", code: "300476", quantity: 100, costPrice: 207.937, currentPrice: 377.79, marketValue: 37779, pnl: 16985.29, type: "趋势仓", suggestion: "分批锁盈", note: "PCB/算力方向小仓趋势票，浮盈较大；继续移动止盈，不补追。" },
+  { name: "金ETF", code: "159834", quantity: 1600, costPrice: 5.606, currentPrice: 10.156, marketValue: 16249.6, pnl: 7279.68, type: "防守仓", suggestion: "持有", note: "组合对冲资产，用于平滑波动；目前维持防守配置。" },
+  { name: "北新建材", code: "000786", quantity: 300, costPrice: 22.651, currentPrice: 26.47, marketValue: 7941, pnl: 1145.76, type: "防守仓", suggestion: "持有", note: "偏稳健小仓，继续作为非科技分散观察。" },
+  { name: "海信家电", code: "000921", quantity: 200, costPrice: 0.411, currentPrice: 24.79, marketValue: 4958, pnl: 4875.8, type: "观察仓", suggestion: "观察", note: "小仓观察，券商显示累计收益较高；不作为主线仓处理。" },
+  { name: "信科移动", code: "688387", quantity: 200, costPrice: 2.069, currentPrice: 22.42, marketValue: 4484, pnl: 4070.28, type: "观察仓", suggestion: "观察", note: "科创通信属性小仓观察，金额较小。" },
+  { name: "易天股份", code: "300812", quantity: 100, costPrice: 15.961, currentPrice: 41.38, marketValue: 4138, pnl: 2541.9, type: "观察仓", suggestion: "观察", note: "小仓观察，涨幅较大但不是主力仓。" },
+  { name: "欣灵电气", code: "301388", quantity: 100, costPrice: -22.077, currentPrice: 33.78, marketValue: 3378, pnl: 5585.72, type: "观察仓", suggestion: "观察", note: "小仓观察，券商成本显示为负，按App截图原样记录。" },
+  { name: "三变科技", code: "002112", quantity: 100, costPrice: 1.296, currentPrice: 20.92, marketValue: 2092, pnl: 1962.39, type: "观察仓", suggestion: "观察", note: "小仓观察，累计收益显示较高。" },
+  { name: "卫星ETF", code: "159206", quantity: 400, costPrice: -12.171, currentPrice: 2.019, marketValue: 807.6, pnl: 5676.6, type: "观察仓", suggestion: "观察", note: "极小仓，券商成本显示为负，按App截图原样记录。" },
+  { name: "游戏ETF", code: "159869", quantity: 100, costPrice: -11.117, currentPrice: 1.328, marketValue: 132.8, pnl: 1244.5, type: "观察仓", suggestion: "观察", note: "极小仓，券商成本显示为负，按App截图原样记录。" },
+  { name: "机器人", code: "562500", quantity: 100, costPrice: -1.474, currentPrice: 1.14, marketValue: 114, pnl: 261.48, type: "观察仓", suggestion: "观察", note: "极小仓，券商成本显示为负，按App截图原样记录。" },
+  { name: "五洲新春", code: "603667", quantity: 0, costPrice: 0, currentPrice: 78.71, marketValue: 0, pnl: 5000.21, type: "观察仓", suggestion: "观察", note: "当前持仓为0，视为已清仓；平台仅保留券商App历史盈亏显示。" },
 ];
 
 export const usHoldings: UsHolding[] = [
@@ -114,9 +114,10 @@ export const usHoldings: UsHolding[] = [
 ];
 
 export const operationRecords: OperationRecord[] = [
+  { date: "2026-05-11", market: "A股", symbol: "整体账户", action: "持仓更新", reason: "截图显示总资产138.76万元，总市值83.73万元，可用资金55.03万元，账户内仓位约61.9%，当日参考盈亏+63936.00元。", result: "A股底表已更新；本次为明显降仓后的新基准，后续建议按现金充足、科技核心仓保留、等待回踩的口径判断。" },
+  { date: "2026-05-11", market: "A股", symbol: "科创芯50/科创半导/科创200/澜起科技", action: "明显减仓", reason: "科创核心仓数量较上一版明显下降，账户内现金提升至约55.03万元。", result: "平台风险灯调整为绿灯；不再按此前接近满仓口径判断。" },
   { date: "2026-05-07", market: "美股", symbol: "整体账户", action: "持仓更新", reason: "北京时间17:51截图显示美股市值约30713.39美元，持仓盈亏+3638.48美元，今日盈亏+20.32美元", result: "美股底表已更新；AMD为6股，META仍为第一大仓，ANET和TME仍为主要浮亏观察对象。" },
-  { date: "2026-05-07", market: "A股", symbol: "整体账户", action: "持仓更新", reason: "北京时间16:56截图显示券商账户仓位95.9%，当日参考盈亏+32527.35元", result: "持仓底表已更新；无交易变动时后续只需刷新行情即可自动估算盈亏。" },
-  { date: "2026-05-07", market: "A股", symbol: "科创芯50/澜起科技/科创半导/科创200", action: "重点观察", reason: "科创核心仓仍是账户主要收益来源，合计仓位较高", result: "继续享受趋势，但账户内仓位接近96%，不再追高叠加同方向仓位。" },
+  { date: "2026-05-07", market: "A股", symbol: "整体账户", action: "持仓更新", reason: "北京时间16:56截图显示券商账户仓位95.9%，当日参考盈亏+32527.35元", result: "旧口径保留为历史记录；2026-05-11之后以新降仓口径为准。" },
 ];
 
 export const settingsNotes = [
