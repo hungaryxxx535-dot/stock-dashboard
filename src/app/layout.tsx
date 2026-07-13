@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "非哥股票作战台",
-  description: "手机优先的股票持仓、市场情报、组合分析、交易复盘与行情作战平台",
+  description: "手机优先的股票持仓、市场情报、A股与美股多维分析、交易复盘及行情作战平台",
   manifest: "/manifest.json",
   appleWebApp: { capable: true, statusBarStyle: "default", title: "股票作战台" },
 };
@@ -31,14 +31,14 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
     while ((node = walker.nextNode())) {
       var text = node.nodeValue || "";
       if (text === "模拟数据 / Mock 数据") node.nodeValue = "持仓总览 / 行情已接入";
-      if (text === "静态 MVP · 手机端以底部导航为主 · 不接真实行情") node.nodeValue = "首页为静态持仓总览 · 市场情报、A股盘中、美股收盘与港股模块已配置";
-      if (text === "静态持仓，不是实时行情。") node.nodeValue = "首页持仓为静态总览；外部环境请看市场情报，价格请看行情页。";
+      if (text === "静态 MVP · 手机端以底部导航为主 · 不接真实行情") node.nodeValue = "首页为静态持仓总览 · 市场情报、A股盘中、美股投研与港股模块已配置";
+      if (text === "静态持仓，不是实时行情。") node.nodeValue = "首页持仓为静态总览；外部环境请看市场情报或美股投研，价格请看行情页。";
       if (text === "A股静态持仓") node.nodeValue = "A股持仓总览";
       if (text === "按第一轮 MVP 指定清单展示，价格与盈亏均为模拟数据。") node.nodeValue = "这里是持仓结构总览；盘中实时价格请点右下角 A股盘中查看。";
       if (text === "美股静态持仓") node.nodeValue = "美股持仓总览";
-      if (text === "美元市值按设置中的汇率折算成人民币计算；所有行情为 Mock 数据。") node.nodeValue = "这里是美股持仓结构总览；收盘价请点右下角 美股收盘查看。";
+      if (text === "美元市值按设置中的汇率折算成人民币计算；所有行情为 Mock 数据。") node.nodeValue = "这里是美股持仓结构总览；宏观、市场与新闻判断请进入美股投研。";
       if (text === "三项静态判断") node.nodeValue = "三项风险判断";
-      if (text === "不接实时行情，仅用于第一轮 UI 验收的风险提醒。") node.nodeValue = "首页风险判断基于持仓；宏观、市场局势与新闻请进入市场情报。";
+      if (text === "不接实时行情，仅用于第一轮 UI 验收的风险提醒。") node.nodeValue = "首页风险判断基于持仓；宏观、市场局势与新闻请进入对应投研页面。";
       if (text === "用于记录买卖原因和结果复盘，MVP 先使用静态数据。") node.nodeValue = "用于记录买卖原因和结果复盘；行情和市场情报已单独联网。";
     }
   }
@@ -86,48 +86,13 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
           }}
         />
         <div className="fixed bottom-24 right-4 z-40 flex max-h-[calc(100vh-7rem)] flex-col items-end gap-2 overflow-y-auto">
-          <a
-            href="/intelligence"
-            className="rounded-full bg-cyan-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-cyan-900/20 transition hover:bg-cyan-700"
-          >
-            市场情报
-          </a>
-          <a
-            href="/analysis"
-            className="rounded-full bg-violet-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-violet-900/20 transition hover:bg-violet-700"
-          >
-            多维分析
-          </a>
-          <a
-            href="/review"
-            className="rounded-full bg-amber-500 px-4 py-3 text-sm font-black text-slate-950 shadow-xl shadow-amber-900/20 transition hover:bg-amber-400"
-          >
-            交易复盘
-          </a>
-          <a
-            href="/system-status"
-            className="rounded-full bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-blue-900/20 transition hover:bg-blue-700"
-          >
-            系统状态
-          </a>
-          <a
-            href="/a-live"
-            className="rounded-full bg-emerald-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-emerald-900/20 transition hover:bg-emerald-700"
-          >
-            A股盘中
-          </a>
-          <a
-            href="/us-close"
-            className="rounded-full bg-white px-4 py-3 text-sm font-black text-slate-950 shadow-xl shadow-slate-900/15 ring-1 ring-slate-200 transition hover:bg-slate-50"
-          >
-            美股收盘
-          </a>
-          <a
-            href="/trade-plan-v2"
-            className="rounded-full bg-slate-950 px-4 py-3 text-sm font-black text-white shadow-xl shadow-slate-900/20 transition hover:bg-slate-800"
-          >
-            操作线
-          </a>
+          <a href="/intelligence" className="rounded-full bg-cyan-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-cyan-900/20 transition hover:bg-cyan-700">市场情报</a>
+          <a href="/analysis" className="rounded-full bg-violet-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-violet-900/20 transition hover:bg-violet-700">A股分析</a>
+          <a href="/us-analysis" className="rounded-full bg-indigo-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-indigo-900/20 transition hover:bg-indigo-700">美股投研</a>
+          <a href="/review" className="rounded-full bg-amber-500 px-4 py-3 text-sm font-black text-slate-950 shadow-xl shadow-amber-900/20 transition hover:bg-amber-400">交易复盘</a>
+          <a href="/system-status" className="rounded-full bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-blue-900/20 transition hover:bg-blue-700">系统状态</a>
+          <a href="/a-live" className="rounded-full bg-emerald-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-emerald-900/20 transition hover:bg-emerald-700">A股盘中</a>
+          <a href="/trade-plan-v2" className="rounded-full bg-slate-950 px-4 py-3 text-sm font-black text-white shadow-xl shadow-slate-900/20 transition hover:bg-slate-800">操作线</a>
         </div>
       </body>
     </html>
