@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "非哥股票作战台",
-  description: "手机优先的股票持仓、市场情报、组合分析、交易复盘与行情作战平台",
+  description: "手机优先的股票持仓、市场情报、A股与美股分析、交易复盘与行情作战平台",
   manifest: "/manifest.json",
   appleWebApp: { capable: true, statusBarStyle: "default", title: "股票作战台" },
 };
@@ -31,15 +31,15 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
     while ((node = walker.nextNode())) {
       var text = node.nodeValue || "";
       if (text === "模拟数据 / Mock 数据") node.nodeValue = "持仓总览 / 行情已接入";
-      if (text === "静态 MVP · 手机端以底部导航为主 · 不接真实行情") node.nodeValue = "首页为静态持仓总览 · 市场情报、A股盘中、美股收盘与港股模块已配置";
-      if (text === "静态持仓，不是实时行情。") node.nodeValue = "首页持仓为静态总览；外部环境请看市场情报，价格请看行情页。";
+      if (text === "静态 MVP · 手机端以底部导航为主 · 不接真实行情") node.nodeValue = "首页为静态持仓总览 · 市场情报、A股盘中、美股分析与港股模块已配置";
+      if (text === "静态持仓，不是实时行情。") node.nodeValue = "首页持仓为静态总览；外部环境请看市场情报和美股分析，价格请看行情页。";
       if (text === "A股静态持仓") node.nodeValue = "A股持仓总览";
       if (text === "按第一轮 MVP 指定清单展示，价格与盈亏均为模拟数据。") node.nodeValue = "这里是持仓结构总览；盘中实时价格请点右下角 A股盘中查看。";
       if (text === "美股静态持仓") node.nodeValue = "美股持仓总览";
-      if (text === "美元市值按设置中的汇率折算成人民币计算；所有行情为 Mock 数据。") node.nodeValue = "这里是美股持仓结构总览；收盘价请点右下角 美股收盘查看。";
+      if (text === "美元市值按设置中的汇率折算成人民币计算；所有行情为 Mock 数据。") node.nodeValue = "这里是美股持仓结构总览；宏观与新闻判断请进入美股分析，收盘价请进入美股收盘。";
       if (text === "三项静态判断") node.nodeValue = "三项风险判断";
-      if (text === "不接实时行情，仅用于第一轮 UI 验收的风险提醒。") node.nodeValue = "首页风险判断基于持仓；宏观、市场局势与新闻请进入市场情报。";
-      if (text === "用于记录买卖原因和结果复盘，MVP 先使用静态数据。") node.nodeValue = "用于记录买卖原因和结果复盘；行情和市场情报已单独联网。";
+      if (text === "不接实时行情，仅用于第一轮 UI 验收的风险提醒。") node.nodeValue = "首页风险判断基于持仓；宏观、市场局势与新闻请进入对应分析页。";
+      if (text === "用于记录买卖原因和结果复盘，MVP 先使用静态数据。") node.nodeValue = "用于记录买卖原因和结果复盘；行情与外部市场情报已单独联网。";
     }
   }
 
@@ -86,6 +86,12 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
           }}
         />
         <div className="fixed bottom-24 right-4 z-40 flex max-h-[calc(100vh-7rem)] flex-col items-end gap-2 overflow-y-auto">
+          <a
+            href="/us-analysis"
+            className="rounded-full bg-indigo-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-indigo-900/20 transition hover:bg-indigo-700"
+          >
+            美股分析
+          </a>
           <a
             href="/intelligence"
             className="rounded-full bg-cyan-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-cyan-900/20 transition hover:bg-cyan-700"
