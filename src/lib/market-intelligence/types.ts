@@ -33,7 +33,7 @@ export type NewsItem = {
   url: string;
   domain: string;
   publishedAt: string;
-  category: "中国宏观" | "A股市场" | "半导体算力" | "海外宏观" | "持仓相关";
+  category: "中国宏观" | "A股市场" | "半导体算力" | "海外宏观" | "持仓相关" | "美股市场" | "美股持仓";
   impact: "利多" | "中性" | "利空" | "待判断";
   relevance: string[];
   source: string;
