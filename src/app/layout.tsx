@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import { FloatingNavigation } from "@/components/floating-navigation";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -85,15 +86,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
             `,
           }}
         />
-        <div className="fixed bottom-24 right-4 z-40 flex max-h-[calc(100vh-7rem)] flex-col items-end gap-2 overflow-y-auto">
-          <a href="/intelligence" className="rounded-full bg-cyan-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-cyan-900/20 transition hover:bg-cyan-700">市场情报</a>
-          <a href="/analysis" className="rounded-full bg-violet-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-violet-900/20 transition hover:bg-violet-700">A股分析</a>
-          <a href="/us-analysis" className="rounded-full bg-indigo-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-indigo-900/20 transition hover:bg-indigo-700">美股投研</a>
-          <a href="/review" className="rounded-full bg-amber-500 px-4 py-3 text-sm font-black text-slate-950 shadow-xl shadow-amber-900/20 transition hover:bg-amber-400">交易复盘</a>
-          <a href="/system-status" className="rounded-full bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-blue-900/20 transition hover:bg-blue-700">系统状态</a>
-          <a href="/a-live" className="rounded-full bg-emerald-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-emerald-900/20 transition hover:bg-emerald-700">A股盘中</a>
-          <a href="/trade-plan-v2" className="rounded-full bg-slate-950 px-4 py-3 text-sm font-black text-white shadow-xl shadow-slate-900/20 transition hover:bg-slate-800">操作线</a>
-        </div>
+        <FloatingNavigation />
       </body>
     </html>
   );
