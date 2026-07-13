@@ -8,12 +8,6 @@ import { getUsCloseFromApi } from "@/lib/usCloseApi";
 const formatUsd = (value: number) => `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const formatPct = (value: number | null) => value === null ? "待更新" : `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 
-const operationLines: Record<string, { label: string; line: number; rule: string }> = {
-  AMD: { label: "AMD 移动止盈线", line: 380, rule: "收盘价跌破后，第二天优先复核是否锁利润。" },
-  ANET: { label: "ANET 止损线", line: 150, rule: "收盘价低于止损线，第二天不补跌，优先风控。" },
-  META: { label: "META 核心锚观察线", line: 600, rule: "收盘价守住 600 附近，继续作为美股核心仓观察。" },
-};
-
 export const dynamic = "force-dynamic";
 
 export default async function UsClosePage() {
@@ -27,7 +21,7 @@ export default async function UsClosePage() {
 
   const updated = dailyCloseData.status === "updated";
   const failed = dailyCloseData.status === "failed";
-  const statusText = updated ? "已更新" : failed ? "更新失败" : "等待更新";
+  const statusText = updated ? "已更新" : failed ? "更新失败" : "使用最新截图回退";
   const statusVariant = updated ? "success" : failed ? "destructive" : "warning";
 
   const tracked = dailyCloseData.quotes.map((quote) => {
@@ -45,15 +39,7 @@ export default async function UsClosePage() {
   const totalCostAmount = tracked.reduce((sum, item) => sum + item.costAmount, 0);
   const totalPnl = totalCloseValue - totalCostAmount;
   const totalPnlPct = totalCostAmount > 0 ? (totalPnl / totalCostAmount) * 100 : null;
-
-  const watchItems = dailyCloseData.quotes
-    .filter((quote) => operationLines[quote.symbol])
-    .map((quote) => {
-      const line = operationLines[quote.symbol];
-      const distancePct = ((quote.close - line.line) / quote.close) * 100;
-      const triggered = quote.close < line.line;
-      return { ...quote, ...line, distancePct, triggered };
-    });
+  const missingLines = usHoldings.filter((item) => item.stopLoss <= 0 || item.targetPrice <= 0);
 
   return (
     <main className="min-h-screen bg-slate-100 px-3 py-4 text-slate-950 sm:px-5">
@@ -64,7 +50,7 @@ export default async function UsClosePage() {
               <h1 className="text-2xl font-black tracking-tight">美股每日收盘价</h1>
               <Badge variant={statusVariant}>{statusText}</Badge>
             </div>
-            <p className="mt-1 text-sm text-slate-500">收盘价自动匹配手动持仓数量和成本价，生成估算市值与浮盈亏。</p>
+            <p className="mt-1 text-sm text-slate-500">收盘价自动匹配最新富途持仓数量和成本价，生成估算市值与浮盈亏。</p>
           </div>
           <a href="/" className="inline-flex shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-medium shadow-sm transition hover:bg-slate-50">
             <ArrowLeft className="mr-1 h-4 w-4" />返回
@@ -87,47 +73,32 @@ export default async function UsClosePage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><TrendingUp className="h-5 w-5" />美股持仓收盘盈亏估算</CardTitle>
-            <CardDescription>持仓数量和成本价来自手动维护清单；收盘价由接口更新，失败时回退本地占位。</CardDescription>
+            <CardDescription>持仓数量和成本价来自2026-07-13富途截图；实时收盘价接口失败时使用同一截图价格回退。</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-3">
             <MiniMetric label="覆盖标的" value={`${dailyCloseData.quotes.length} 只`} />
             <MiniMetric label="收盘价估算市值" value={formatUsd(totalCloseValue)} />
             <MiniMetric label="估算成本" value={formatUsd(totalCostAmount)} />
-            <MiniMetric label="自动估算盈亏" value={`${totalPnl >= 0 ? "+" : ""}${formatUsd(totalPnl)}`} />
-            <MiniMetric label="估算收益率" value={formatPct(totalPnlPct)} />
+            <MiniMetric label="逐票估算盈亏" value={`${totalPnl >= 0 ? "+" : ""}${formatUsd(totalPnl)}`} />
+            <MiniMetric label="逐票估算收益率" value={formatPct(totalPnlPct)} />
             <MiniMetric label="状态" value={statusText} />
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-amber-200 bg-amber-50">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><ShieldAlert className="h-5 w-5" />操作线触发复核</CardTitle>
-            <CardDescription>收盘后查看 AMD、ANET、META 是否触发纪律线。</CardDescription>
+            <CardTitle className="flex items-center gap-2"><ShieldAlert className="h-5 w-5" />纪律线需要重设</CardTitle>
+            <CardDescription>本次持仓数量和价格变化较大，旧版AMD、ANET、META纪律线已经停用，避免生成错误信号。</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-3">
-            {watchItems.map((item) => (
-              <div key={item.symbol} className="rounded-2xl border border-slate-200 bg-white p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-black">{item.symbol} · {item.label}</p>
-                    <p className="mt-1 text-sm text-slate-500">{item.rule}</p>
-                  </div>
-                  <Badge variant={item.triggered ? "destructive" : "success"}>{item.triggered ? "已触发" : "未触发"}</Badge>
-                </div>
-                <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
-                  <MiniMetric label="收盘价" value={formatUsd(item.close)} />
-                  <MiniMetric label="纪律线" value={formatUsd(item.line)} />
-                  <MiniMetric label="距离" value={`${item.distancePct.toFixed(1)}%`} />
-                </div>
-              </div>
-            ))}
+          <CardContent>
+            <p className="text-sm leading-6 text-amber-900">当前有 {missingLines.length} 只持仓尚未设置新的止损线和目标价。在重新设定之前，美股投研只输出宏观、新闻和持仓状态判断，不会把旧纪律线当成操作依据。</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><CalendarCheck className="h-5 w-5" />收盘价与盈亏明细</CardTitle>
-            <CardDescription>价格自动更新后，系统按收盘价 × 持仓数量重新估算市值和浮盈亏。</CardDescription>
+            <CardDescription>逐票盈亏按照收盘价 × 数量与截图成本计算；富途账户顶部显示的累计持仓盈亏可能采用不同口径，两者不强行闭合。</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
             {tracked.map((item) => {
