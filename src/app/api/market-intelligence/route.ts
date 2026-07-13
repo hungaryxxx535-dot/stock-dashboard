@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { extendMarketIntelligence } from "@/lib/market-intelligence/extended";
+import { applyResilientFallbacks } from "@/lib/market-intelligence/resilient";
 import { getMarketIntelligence } from "@/lib/market-intelligence/server";
 
 export const runtime = "nodejs";
@@ -8,7 +9,8 @@ export const revalidate = 900;
 export async function GET() {
   try {
     const basePayload = await getMarketIntelligence();
-    const payload = await extendMarketIntelligence(basePayload);
+    const extendedPayload = await extendMarketIntelligence(basePayload);
+    const payload = await applyResilientFallbacks(extendedPayload);
     return NextResponse.json(payload, {
       headers: {
         "Cache-Control": "public, s-maxage=900, stale-while-revalidate=1800",
