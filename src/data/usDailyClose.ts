@@ -17,23 +17,19 @@ export type UsDailyCloseData = {
   quotes: UsDailyCloseQuote[];
 };
 
-// Deployment trigger: refresh Vercel after AKSHARE_API_URL value fix.
 export const usDailyClose: UsDailyCloseData = {
-  version: "等待 API 首次更新",
-  tradingDate: "",
-  updatedAt: "尚未更新",
-  source: "Local static fallback",
+  version: "2026-07-13 06:43 Futu screenshot fallback",
+  tradingDate: "2026-07-13",
+  updatedAt: "2026-07-13 06:43 Asia/Shanghai",
+  source: "Futu screenshot local fallback",
   status: "waiting",
-  description: "这是美股每日收盘价本地回退数据文件。平台优先调用 Twelve Data API 获取收盘价；API Key 缺失或接口失败时，才会显示本文件中的静态占位数据。",
+  description: "平台优先调用 Twelve Data 获取美股收盘价；接口缺失或失败时，回退到用户最新富途截图价格。截图价格只代表截图时点。",
   quotes: [
-    { symbol: "META", name: "Meta Platforms", close: 605.5, changePct: null, currency: "USD", note: "静态占位，等待 API 自动更新" },
-    { symbol: "AMD", name: "美国超微公司", close: 417.01, changePct: null, currency: "USD", note: "静态占位，等待 API 自动更新" },
-    { symbol: "ANET", name: "Arista Networks", close: 156.49, changePct: null, currency: "USD", note: "静态占位，等待 API 自动更新" },
-    { symbol: "APH", name: "安费诺", close: 138, changePct: null, currency: "USD", note: "静态占位，等待 API 自动更新" },
-    { symbol: "RMBS", name: "Rambus", close: 125.05, changePct: null, currency: "USD", note: "静态占位，等待 API 自动更新" },
-    { symbol: "TME", name: "腾讯音乐", close: 9.26, changePct: null, currency: "USD", note: "静态占位，等待 API 自动更新" },
-    { symbol: "PDD", name: "拼多多", close: 97.2, changePct: null, currency: "USD", note: "静态占位，等待 API 自动更新" },
-    { symbol: "INTC", name: "英特尔", close: 112.5, changePct: null, currency: "USD", note: "静态占位，等待 API 自动更新" },
-    { symbol: "MSFU", name: "Direxion Daily MSFT Bull 2X Shares", close: 27.72, changePct: null, currency: "USD", note: "静态占位，等待 API 自动更新" }
+    { symbol: "DRAM", name: "Roundhill DRAM ETF", close: 57.109, changePct: null, currency: "USD", note: "2026-07-13富途截图回退价格" },
+    { symbol: "AMD", name: "AMD", close: 542.547, changePct: null, currency: "USD", note: "2026-07-13富途截图回退价格" },
+    { symbol: "INTC", name: "Intel", close: 106.57, changePct: null, currency: "USD", note: "2026-07-13富途截图回退价格" },
+    { symbol: "ANET", name: "Arista Networks", close: 187.72, changePct: null, currency: "USD", note: "2026-07-13富途截图回退价格" },
+    { symbol: "SCHD", name: "Schwab U.S. Dividend Equity ETF", close: 32.51, changePct: null, currency: "USD", note: "2026-07-13富途截图回退价格" },
+    { symbol: "SPCX", name: "SpaceX exposure", close: 143.84, changePct: null, currency: "USD", note: "2026-07-13富途截图回退价格；代码按券商原样记录" },
   ],
 };
