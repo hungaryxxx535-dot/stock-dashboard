@@ -26,6 +26,17 @@ export type ParsedPortfolioDraft = {
   rawText: string;
 };
 
+type OcrWord = {
+  text: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  centerX: number;
+  centerY: number;
+  lineKey: string;
+};
+
 const defaultAccount: ImportedAccountSummary = {
   totalAssets: 0,
   marketValue: 0,
@@ -57,10 +68,14 @@ function normalizeText(text: string): string {
     .trim();
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function findLabeledNumber(text: string, labels: string[]): number {
   const numberPattern = "([+-]?[\\d,]+(?:\\.\\d+)?)";
   for (const label of labels) {
-    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escaped = escapeRegExp(label);
     const forward = new RegExp(`${escaped}[^\\d+-]{0,18}${numberPattern}`, "i").exec(text);
     if (forward?.[1]) return toNumber(forward[1]);
     const reverse = new RegExp(`${numberPattern}[^\\d]{0,12}${escaped}`, "i").exec(text);
@@ -72,7 +87,7 @@ function findLabeledNumber(text: string, labels: string[]): number {
 function findPercent(text: string, labels: string[]): number {
   const numberPattern = "([+-]?[\\d,.]+)\\s*%";
   for (const label of labels) {
-    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escaped = escapeRegExp(label);
     const match = new RegExp(`${escaped}[^\\d+-]{0,18}${numberPattern}`, "i").exec(text);
     if (match?.[1]) return toNumber(match[1]);
   }
@@ -98,7 +113,7 @@ function findValueInBlock(block: string, labels: string[]): number {
 function inferType(name: string, marketValue: number, existing?: AShareHolding): AShareHolding["type"] {
   if (existing && validTypes.includes(existing.type)) return existing.type;
   if (/科创芯50|科创半导|科创200|澜起科技/.test(name)) return "核心仓";
-  if (/招商银行|金ETF|黄金ETF/.test(name)) return "防守仓";
+  if (/招商银行|金ETF|黄金|黄金9999/.test(name)) return "防守仓";
   if (marketValue > 0 && marketValue < 30000) return "观察仓";
   return "趋势仓";
 }
@@ -165,13 +180,157 @@ function parseHoldings(text: string, existingHoldings: AShareHolding[]): AShareH
   }));
 }
 
+function parseTsvWords(tsv: string): OcrWord[] {
+  const rows = tsv.split(/\r?\n/).slice(1);
+  const words: OcrWord[] = [];
+
+  for (const row of rows) {
+    const columns = row.split("\t");
+    if (columns.length < 12 || Number(columns[0]) !== 5) continue;
+    const text = columns.slice(11).join("\t").trim();
+    if (!text) continue;
+    const left = Number(columns[6]);
+    const top = Number(columns[7]);
+    const width = Number(columns[8]);
+    const height = Number(columns[9]);
+    if (![left, top, width, height].every(Number.isFinite)) continue;
+    words.push({
+      text,
+      left,
+      top,
+      width,
+      height,
+      centerX: left + width / 2,
+      centerY: top + height / 2,
+      lineKey: `${columns[2]}-${columns[3]}-${columns[4]}`,
+    });
+  }
+  return words;
+}
+
+function numericValues(words: OcrWord[]): number[] {
+  const grouped = new Map<string, OcrWord[]>();
+  for (const word of words) {
+    const list = grouped.get(word.lineKey) ?? [];
+    list.push(word);
+    grouped.set(word.lineKey, list);
+  }
+
+  return [...grouped.values()]
+    .map((lineWords) => {
+      const sorted = [...lineWords].sort((a, b) => a.left - b.left);
+      const text = sorted.map((word) => word.text).join("");
+      const top = sorted.reduce((sum, word) => sum + word.top, 0) / sorted.length;
+      const matches = text.match(/[+-]?(?:\d[\d,]*\.?\d*|\.\d+)/g) ?? [];
+      return { top, values: matches.map((value) => toNumber(value)) };
+    })
+    .sort((a, b) => a.top - b.top)
+    .flatMap((line) => line.values);
+}
+
+function nameFromWords(words: OcrWord[]): string {
+  const grouped = new Map<string, OcrWord[]>();
+  for (const word of words) {
+    const list = grouped.get(word.lineKey) ?? [];
+    list.push(word);
+    grouped.set(word.lineKey, list);
+  }
+  const lines = [...grouped.values()]
+    .map((lineWords) => ({
+      top: Math.min(...lineWords.map((word) => word.top)),
+      text: [...lineWords].sort((a, b) => a.left - b.left).map((word) => word.text).join(""),
+    }))
+    .sort((a, b) => a.top - b.top);
+
+  for (const line of lines) {
+    const cleaned = line.text.replace(/[\d.,%+\-¥￥$]/g, "").replace(/\s+/g, "").trim();
+    if (cleaned.length >= 2 && cleaned.length <= 18 && /[\u4e00-\u9fa5A-Za-z]/.test(cleaned) && !isNoiseLine(cleaned)) {
+      return cleaned;
+    }
+  }
+  return "待确认标的";
+}
+
+function columnWords(rowWords: OcrWord[], imageWidth: number, minRatio: number, maxRatio: number): OcrWord[] {
+  return rowWords.filter((word) => {
+    const ratio = word.centerX / imageWidth;
+    return ratio >= minRatio && ratio < maxRatio;
+  });
+}
+
+export function parsePortfolioOcrTsv(
+  tsv: string,
+  imageWidth: number,
+  imageHeight: number,
+  existingHoldings: AShareHolding[],
+): AShareHolding[] {
+  if (!tsv || imageWidth <= 0 || imageHeight <= 0) return [];
+  const words = parseTsvWords(tsv);
+  if (words.length === 0) return [];
+
+  const codeCandidates = words.filter((word) => {
+    const digits = word.text.replace(/\D/g, "");
+    const x = word.centerX / imageWidth;
+    const y = word.centerY / imageHeight;
+    return /^\d{6}$/.test(digits) && x >= 0.68 && x <= 0.84 && y >= 0.25;
+  });
+
+  const uniqueCodes = [...new Map(codeCandidates.map((word) => [word.text.replace(/\D/g, ""), word])).values()]
+    .sort((a, b) => a.centerY - b.centerY);
+  if (uniqueCodes.length === 0) return [];
+
+  return uniqueCodes.map((codeWord, index) => {
+    const previousY = uniqueCodes[index - 1]?.centerY;
+    const nextY = uniqueCodes[index + 1]?.centerY;
+    const typicalGap = nextY ? nextY - codeWord.centerY : previousY ? codeWord.centerY - previousY : imageHeight * 0.05;
+    const topBoundary = previousY ? (previousY + codeWord.centerY) / 2 : codeWord.centerY - typicalGap / 2;
+    const bottomBoundary = nextY ? (codeWord.centerY + nextY) / 2 : codeWord.centerY + typicalGap / 2;
+    const rowWords = words.filter((word) => word.centerY >= topBoundary && word.centerY < bottomBoundary);
+    const code = codeWord.text.replace(/\D/g, "");
+    const existing = existingHoldings.find((item) => item.code === code);
+
+    const nameColumn = columnWords(rowWords, imageWidth, 0, 0.145);
+    const pnlColumn = columnWords(rowWords, imageWidth, 0.145, 0.255);
+    const quantityColumn = columnWords(rowWords, imageWidth, 0.255, 0.365);
+    const priceColumn = columnWords(rowWords, imageWidth, 0.365, 0.505);
+
+    const marketValues = numericValues(nameColumn);
+    const pnlValues = numericValues(pnlColumn);
+    const quantityValues = numericValues(quantityColumn);
+    const priceValues = numericValues(priceColumn);
+
+    const name = existing?.name ?? nameFromWords(nameColumn);
+    const quantity = quantityValues[0] ?? 0;
+    const costPrice = priceValues[0] ?? 0;
+    const currentPrice = priceValues[1] ?? 0;
+    let marketValue = marketValues[0] ?? 0;
+    let pnl = pnlValues[0] ?? 0;
+
+    if (!marketValue && quantity > 0 && currentPrice > 0) marketValue = quantity * currentPrice;
+    if (!pnl && quantity > 0 && currentPrice > 0 && costPrice !== 0) pnl = quantity * (currentPrice - costPrice);
+
+    return {
+      name,
+      code,
+      quantity,
+      costPrice,
+      currentPrice,
+      marketValue,
+      pnl,
+      type: inferType(name, marketValue, existing),
+      suggestion: inferSuggestion(existing),
+      note: existing?.note ? `${existing.note}｜截图OCR导入，已人工确认` : "截图OCR导入，需人工确认",
+    } satisfies AShareHolding;
+  });
+}
+
 export function parsePortfolioOcrText(rawText: string, existingHoldings: AShareHolding[]): ParsedPortfolioDraft {
   const text = normalizeText(rawText);
   const marketValue = findLabeledNumber(text, ["总市值", "证券市值", "持仓市值"]);
   const totalAssets = findLabeledNumber(text, ["总资产", "资产总额"]);
-  const availableCash = findLabeledNumber(text, ["可用资金", "可用金额", "可取资金"]);
+  const availableCash = findLabeledNumber(text, ["可用资金", "可用金额", "可取资金", "可用"]);
   const totalPnl = findLabeledNumber(text, ["总盈亏", "持仓盈亏"]);
-  const todayPnl = findLabeledNumber(text, ["今日参考盈亏", "当日参考盈亏", "今日盈亏"]);
+  const todayPnl = findLabeledNumber(text, ["今日参考盈亏", "当日参考盈亏", "今日盈亏", "当日参考盈亏"]);
   let brokerPositionPct = findPercent(text, ["仓位", "持仓仓位"]);
   if (!brokerPositionPct && totalAssets > 0 && marketValue > 0) brokerPositionPct = (marketValue / totalAssets) * 100;
 
