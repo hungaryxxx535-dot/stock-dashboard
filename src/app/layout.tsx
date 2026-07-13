@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "非哥股票作战台",
-  description: "手机优先的股票持仓 Dashboard / A股盘中、美股收盘与港股模块",
+  description: "手机优先的股票持仓、组合分析、交易复盘与行情作战平台",
   manifest: "/manifest.json",
   appleWebApp: { capable: true, statusBarStyle: "default", title: "股票作战台" },
 };
@@ -85,7 +85,19 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
             `,
           }}
         />
-        <div className="fixed bottom-24 right-4 z-40 flex flex-col items-end gap-2">
+        <div className="fixed bottom-24 right-4 z-40 flex max-h-[calc(100vh-7rem)] flex-col items-end gap-2 overflow-y-auto">
+          <a
+            href="/analysis"
+            className="rounded-full bg-violet-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-violet-900/20 transition hover:bg-violet-700"
+          >
+            多维分析
+          </a>
+          <a
+            href="/review"
+            className="rounded-full bg-amber-500 px-4 py-3 text-sm font-black text-slate-950 shadow-xl shadow-amber-900/20 transition hover:bg-amber-400"
+          >
+            交易复盘
+          </a>
           <a
             href="/system-status"
             className="rounded-full bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-xl shadow-blue-900/20 transition hover:bg-blue-700"
