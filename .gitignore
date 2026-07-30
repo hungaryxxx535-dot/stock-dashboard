@@ -10,3 +10,13 @@ yarn-error.log*
 pnpm-debug.log*
 
 tsconfig.tsbuildinfo
+
+# Local-only portfolio migrations and private user backups
+.local-private/
+private-data/
+*.portfolio-backup.json
+
+# Keep only anonymous Playwright acceptance screenshots, not traces or run metadata
+test-results/*
+!test-results/screenshots/
+!test-results/screenshots/*.png

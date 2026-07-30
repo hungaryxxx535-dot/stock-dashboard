@@ -15,18 +15,9 @@ CACHE_SECONDS = int(os.getenv("CACHE_SECONDS", "30"))
 SERVICE_TOKEN = os.getenv("AKSHARE_SERVICE_TOKEN", "")
 ALLOWED_ORIGINS = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",") if x.strip()]
 
-WATCHLIST: List[Dict[str, str]] = [
-    {"code": "588750", "name": "科创芯50", "type": "etf", "role": "第一大仓 / 科创芯片"},
-    {"code": "688008", "name": "澜起科技", "type": "stock", "role": "核心个股 / 浮盈保护"},
-    {"code": "515880", "name": "通信ETF", "type": "etf", "role": "通信 / CPO 方向"},
-    {"code": "588170", "name": "科创半导", "type": "etf", "role": "半导体高相关仓"},
-    {"code": "588230", "name": "科创200", "type": "etf", "role": "科创弹性仓"},
-    {"code": "159382", "name": "AI创业板", "type": "etf", "role": "AI 弹性仓"},
-    {"code": "300476", "name": "胜宏科技", "type": "stock", "role": "PCB / AI 算力链"},
-    {"code": "600036", "name": "招商银行", "type": "stock", "role": "防守仓 / 稳定器"},
-    {"code": "159834", "name": "金ETF", "type": "etf", "role": "防守仓 / 黄金"},
-    {"code": "512400", "name": "有色ETF", "type": "etf", "role": "资源 / 防守观察"},
-]
+# A private deployment may supply its own symbols. Never commit a user's
+# portfolio as the service-wide default watchlist.
+WATCHLIST: List[Dict[str, str]] = []
 
 _cache: Dict[str, Any] = {"a": None, "a_at": 0.0, "hk": None, "hk_at": 0.0}
 app = FastAPI(title="非哥行情服务", description="A股与港股观察服务", version="0.3.0")

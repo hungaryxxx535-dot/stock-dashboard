@@ -1,11 +1,13 @@
 {
-  "name": "非哥股票作战台",
+  "name": "非哥股票作战平台",
   "short_name": "股票作战台",
-  "description": "手机优先的股票持仓 Dashboard",
+  "description": "本地优先的持仓、研究、计划、风控与复盘系统",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#f8fafc",
   "theme_color": "#0f172a",
-  "orientation": "portrait-primary",
-  "icons": []
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
 }
