@@ -15,7 +15,6 @@
     "incremental": true,
     "plugins": [{ "name": "next" }],
     "paths": {
-      "@/data/portfolio": ["./src/data/portfolio-runtime.ts"],
       "@/*": ["./src/*"]
     }
   },

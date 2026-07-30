@@ -7,16 +7,17 @@ const baseUrl = `http://127.0.0.1:${port}`;
 const nextBin = path.join(process.cwd(), "node_modules", "next", "dist", "bin", "next");
 const routes = [
   "/",
-  "/a-live",
-  "/analysis",
-  "/hk",
-  "/intelligence",
-  "/review",
-  "/system-status",
-  "/trade-plan",
-  "/trade-plan-v2",
-  "/us-analysis",
-  "/us-close",
+  "/portfolio",
+  "/portfolio/import",
+  "/market",
+  "/research",
+  "/research/DEMO-A1",
+  "/research/watchlist",
+  "/plans",
+  "/plans/daily",
+  "/risk",
+  "/journal",
+  "/settings",
 ];
 
 const server = spawn(process.execPath, [nextBin, "start", "-H", "127.0.0.1", "-p", String(port)], {
@@ -80,21 +81,19 @@ try {
     console.log(`PASS page ${route}`);
   }
 
-  const marketResponse = await request("/api/market-intelligence", 75_000);
+  const marketResponse = await request("/api/market", 75_000);
   assert.equal(marketResponse.status, 200, `market API returned HTTP ${marketResponse.status}`);
   const marketPayload = await marketResponse.json();
-  assert.ok(Array.isArray(marketPayload.sourceStatus), "market API omitted sourceStatus");
-  assert.ok(Array.isArray(marketPayload.warnings), "market API omitted warnings");
-  assert.equal(typeof marketPayload.regime?.label, "string", "market API omitted regime");
+  assert.ok(Array.isArray(marketPayload.statuses), "market API omitted statuses");
   assert.ok(
-    marketPayload.sourceStatus.some(
-      (source) => source.id === "tushare" && source.status === "not_configured",
+    marketPayload.statuses.some(
+      (source) => source.id === "tushare" && source.state === "not_configured",
     ),
     "market API did not report missing TUSHARE_TOKEN",
   );
   assert.ok(
-    marketPayload.sourceStatus.some(
-      (source) => source.id === "akshare-live" && ["error", "not_configured"].includes(source.status),
+    marketPayload.statuses.some(
+      (source) => source.id === "akshare-live" && ["error", "not_configured", "timeout"].includes(source.state),
     ),
     "market API did not degrade when AKShare was unreachable",
   );
