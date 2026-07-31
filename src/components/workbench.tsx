@@ -4,11 +4,14 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowRight, CheckCircle2, Database, Download, Loader2, Plus, RefreshCw, ShieldAlert, Upload } from "lucide-react";
 import { usePortfolioData } from "@/components/data-provider";
+import { PortfolioScreenshotImportV2 } from "@/components/portfolio-screenshot-import-v2";
 import { calculatePortfolioMetrics, runStressTests } from "@/domain/engines/portfolio-risk-engine";
 import type { AppState } from "@/domain/model";
+import { marketLabel, type EquityMarket } from "@/lib/portfolio-import/screenshot";
 
 type View = "home" | "portfolio" | "import" | "market" | "research" | "watchlist" | "plans" | "daily" | "risk" | "journal" | "settings";
 const money = (value: number) => new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(value);
+const nativeMoney = (value: number, currency: "CNY" | "USD" | "HKD") => new Intl.NumberFormat("zh-CN", { style: "currency", currency, maximumFractionDigits: 2 }).format(value);
 const pct = (value: number) => `${value.toFixed(1)}%`;
 const id = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
@@ -54,26 +57,48 @@ function HomePage({ state, metrics, error }: { state: AppState; metrics: ReturnT
 function PortfolioPage() {
   const { state, save } = usePortfolioData();
   const metrics = useMemo(() => calculatePortfolioMetrics(state), [state]);
-  const [form, setForm] = useState({ symbol: "", name: "", quantity: "", cost: "", market: "CN" });
-  const add = async (event: React.FormEvent) => {
-    event.preventDefault(); const now = new Date().toISOString(); const instrumentId = id("instrument");
-    await save((current) => ({ ...current, mode: "local", instruments: [...current.instruments, { id: instrumentId, symbol: form.symbol.toUpperCase(), name: form.name, market: form.market as "CN" | "US" | "HK", currency: form.market === "US" ? "USD" : form.market === "HK" ? "HKD" : "CNY", assetType: "stock", sectors: [], styles: [], isLeveraged: false }], holdings: [...current.holdings, { id: id("holding"), accountId: current.accounts.find((a) => a.market === form.market)?.id ?? current.accounts[0].id, instrumentId, quantity: Number(form.quantity), brokerCost: Number(form.cost), economicCost: Number(form.cost), status: "open", thesis: "", tags: [], openedAt: now, closedAt: null, updatedAt: now }] }));
-    setForm({ symbol: "", name: "", quantity: "", cost: "", market: "CN" });
-  };
   const remove = async (holdingId: string) => save((current) => ({ ...current, holdings: current.holdings.map((item) => item.id === holdingId ? { ...item, status: "closed", closedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } : item) }));
-  return <><PageHeader title="持仓中心" description="统一管理账户、现金、持仓与交易。删除操作采用软关闭，历史数据仍可审计。" action={<Link className={buttonClass} href="/portfolio/import"><Upload className="h-4 w-4" />导入</Link>} />
-    <div className="mb-4 grid gap-4 sm:grid-cols-3"><Metric label="投资市值" value={money(metrics.investedValue)} /><Metric label="现金" value={money(metrics.cashValue)} /><Metric label="开放持仓" value={`${metrics.valuations.length} 项`} /></div>
-    <div className="grid gap-4 xl:grid-cols-[1.5fr_1fr]"><Panel title="持仓明细"><div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead className="text-slate-500"><tr><th className="py-2">标的</th><th>市场</th><th>数量</th><th>券商成本</th><th>经济成本</th><th>估算市值</th><th></th></tr></thead><tbody>{metrics.valuations.map((item) => <tr key={item.holding.id} className="border-t"><td className="py-3 font-bold">{item.instrument.symbol}<span className="block font-normal text-slate-500">{item.instrument.name}</span></td><td>{item.instrument.market}</td><td>{item.holding.quantity}</td><td>{item.holding.brokerCost}</td><td>{item.holding.economicCost}</td><td>{money(item.valueBase)}{item.estimated && <span className="block text-xs text-amber-600">成本估算</span>}</td><td><button className="text-red-600" onClick={() => remove(item.holding.id)}>关闭</button></td></tr>)}</tbody></table></div></Panel>
-    <Panel title="手工新增持仓"><form onSubmit={add} className="grid gap-3"><input required aria-label="证券代码" placeholder="证券代码" className={inputClass} value={form.symbol} onChange={(e) => setForm({ ...form, symbol: e.target.value })} /><input required aria-label="证券名称" placeholder="证券名称" className={inputClass} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /><select aria-label="市场" className={inputClass} value={form.market} onChange={(e) => setForm({ ...form, market: e.target.value })}><option value="CN">A 股</option><option value="HK">港股</option><option value="US">美股</option></select><input required min="0" step="any" type="number" placeholder="数量" className={inputClass} value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /><input required min="0" step="any" type="number" placeholder="成本" className={inputClass} value={form.cost} onChange={(e) => setForm({ ...form, cost: e.target.value })} /><button className={buttonClass}><Plus className="h-4 w-4" />保存到本机</button></form></Panel></div>
+  const sections: Array<{ market: EquityMarket; accent: string }> = [
+    { market: "CN", accent: "border-t-red-500" },
+    { market: "US", accent: "border-t-blue-500" },
+    { market: "HK", accent: "border-t-violet-500" },
+  ];
+  return <><PageHeader title="持仓中心" description="A股、美股、港股分开管理。新增持仓统一通过券商截图识别导入，避免逐项手工录入。" action={<Link className={buttonClass} href="/portfolio/import"><Upload className="h-4 w-4" />上传持仓截图</Link>} />
+    <div className="mb-4 grid gap-4 sm:grid-cols-3"><Metric label="投资市值（人民币折算）" value={money(metrics.investedValue)} /><Metric label="现金（人民币折算）" value={money(metrics.cashValue)} /><Metric label="开放持仓" value={`${metrics.valuations.length} 项`} /></div>
+    <div className="space-y-4">
+      {sections.map(({ market, accent }) => {
+        const items = metrics.valuations.filter((item) => item.instrument.market === market);
+        const value = items.reduce((sum, item) => sum + item.valueBase, 0);
+        return <section key={market} aria-labelledby={`portfolio-${market}`} className={`rounded-2xl border border-t-4 border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-5 ${accent}`}>
+          <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
+            <div><p className="text-xs font-bold uppercase tracking-widest text-slate-500">{market}</p><h2 id={`portfolio-${market}`} className="text-xl font-black">我的{marketLabel(market)}</h2><p className="mt-1 text-sm text-slate-500">{items.length} 项持仓 · 人民币折算 {money(value)}</p></div>
+            <Link className="text-sm font-bold text-cyan-700 dark:text-cyan-300" href="/portfolio/import">上传{marketLabel(market)}截图 →</Link>
+          </div>
+          {!items.length ? <div className="rounded-xl border border-dashed border-slate-300 p-5 text-center dark:border-slate-700"><p className="font-bold">尚未导入{marketLabel(market)}持仓</p><p className="mt-1 text-sm text-slate-500">上传券商持仓截图即可识别，不需要逐项填写。</p></div> : <>
+            <div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[720px] text-left text-sm"><thead className="text-slate-500"><tr><th className="py-2">标的</th><th>数量</th><th>券商成本</th><th>经济成本</th><th>折算市值</th><th>数据口径</th><th></th></tr></thead><tbody>{items.map((item) => <tr key={item.holding.id} className="border-t border-slate-100 dark:border-slate-800"><td className="py-3 font-bold">{item.instrument.symbol}<span className="block font-normal text-slate-500">{item.instrument.name}</span></td><td>{item.holding.quantity.toLocaleString("zh-CN")}</td><td>{nativeMoney(item.holding.brokerCost, item.instrument.currency)}</td><td>{nativeMoney(item.holding.economicCost, item.instrument.currency)}</td><td>{money(item.valueBase)}</td><td>{item.estimated ? <span className="text-amber-700">成本估算</span> : <span className="text-emerald-700">截图现价</span>}</td><td><button className="text-red-600" onClick={() => remove(item.holding.id)}>关闭</button></td></tr>)}</tbody></table></div>
+            <div className="space-y-3 md:hidden">{items.map((item) => <article key={item.holding.id} className="rounded-xl border border-slate-200 p-3 dark:border-slate-700"><div className="flex items-start justify-between gap-3"><div><p className="font-black">{item.instrument.symbol}</p><p className="text-sm text-slate-500">{item.instrument.name}</p></div><button className="text-sm font-bold text-red-600" onClick={() => remove(item.holding.id)}>关闭</button></div><dl className="mt-3 grid grid-cols-2 gap-3 text-sm"><div><dt className="text-xs text-slate-500">数量</dt><dd className="font-bold">{item.holding.quantity.toLocaleString("zh-CN")}</dd></div><div><dt className="text-xs text-slate-500">券商成本</dt><dd className="font-bold">{nativeMoney(item.holding.brokerCost, item.instrument.currency)}</dd></div><div><dt className="text-xs text-slate-500">经济成本</dt><dd className="font-bold">{nativeMoney(item.holding.economicCost, item.instrument.currency)}</dd></div><div><dt className="text-xs text-slate-500">折算市值</dt><dd className="font-bold">{money(item.valueBase)}</dd></div></dl><p className={`mt-3 text-xs ${item.estimated ? "text-amber-700" : "text-emerald-700"}`}>{item.estimated ? "缺少有效价格，暂按经济成本估算" : "使用用户确认的截图价格或有效行情"}</p></article>)}</div>
+          </>}
+        </section>;
+      })}
+    </div>
   </>;
 }
 
 function ImportPage() {
   const { importBackup, state } = usePortfolioData();
-  const [raw, setRaw] = useState(""); const [message, setMessage] = useState("");
-  const run = async () => { try { await importBackup(raw); setMessage("校验通过并已导入；导入前状态已自动快照。"); } catch { setMessage("导入失败：文件结构或校验不通过，原数据未改变。"); } };
-  return <><PageHeader title="导入中心" description="支持 V2 JSON 备份；CSV、券商截图与 OCR 必须经过解析、差异预览和人工确认后才能保存。" />
-    <div className="grid gap-4 lg:grid-cols-3"><Panel title="1. 选择来源"><div className="space-y-2 text-sm"><p className="rounded-xl bg-cyan-50 p-3 text-cyan-900">V2 JSON：可直接严格校验</p><p className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800">CSV：字段映射后确认</p><p className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800">截图 OCR：仅本地解析，失败不落库</p></div></Panel><Panel title="2. 校验与差异"><textarea aria-label="粘贴 V2 JSON" className={`${inputClass} min-h-48 py-3 font-mono`} placeholder="粘贴导出的 V2 JSON…" value={raw} onChange={(e) => setRaw(e.target.value)} /><p className="mt-2 text-xs text-slate-500">当前版本：{state.dataVersions.at(-1)?.label}</p></Panel><Panel title="3. 人工确认"><button disabled={!raw} onClick={run} className={buttonClass}><Upload className="h-4 w-4" />确认导入</button>{message && <p role="status" className="mt-3 text-sm">{message}</p>}<p className="mt-4 text-xs leading-6 text-slate-500">OCR 置信度不足、字段缺失或总额不闭合时不会写入。每次导入前自动创建可恢复快照。</p></Panel></div>
+  const [message, setMessage] = useState("");
+  const restore = async (file?: File) => {
+    if (!file) return;
+    try {
+      await importBackup(await file.text());
+      setMessage("V2 备份已校验并恢复；恢复前状态已自动快照。");
+    } catch {
+      setMessage("备份恢复失败：文件结构或校验不通过，原数据未改变。");
+    }
+  };
+  return <><PageHeader title="持仓截图导入" description="先选择 A股、美股或港股，再上传券商持仓截图。本地 OCR 识别、逐条核对、一次确认后写入，不再需要手工新增持仓。" action={<Link className={buttonClass} href="/portfolio">返回持仓中心</Link>} />
+    <PortfolioScreenshotImportV2 />
+    <Panel title="V2 数据备份恢复" className="mt-4"><p className="text-sm leading-6 text-slate-500">这是整站 JSON 备份恢复入口，与持仓截图识别分开。当前数据版本：{state.dataVersions.at(-1)?.label}</p><label className={`${buttonClass} mt-3 cursor-pointer`}><Upload className="h-4 w-4" />选择 V2 JSON 备份<input className="sr-only" type="file" accept=".json,application/json" onChange={(event) => void restore(event.target.files?.[0])} /></label>{message && <p role="status" className="mt-3 text-sm font-bold text-amber-700">{message}</p>}</Panel>
   </>;
 }
 
