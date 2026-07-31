@@ -5,23 +5,29 @@ import { AlertTriangle, CheckCircle2, ImageUp, Loader2, ScanLine, ShieldCheck, T
 import { usePortfolioData } from "@/components/data-provider";
 import {
   applyScreenshotImport,
-  isValidMarketSymbol,
+  findMatchingInstrument,
   marketLabel,
+  normalizeSecurityName,
   normalizeSymbol,
-  parseBrokerScreenshotText,
+  parseBrokerScreenshotOcr,
   type EquityMarket,
   type ScreenshotHoldingDraft,
 } from "@/lib/portfolio-import/screenshot";
 
 const TESSERACT_SCRIPT = "https://cdn.jsdelivr.net/npm/tesseract.js@7/dist/tesseract.min.js";
 const markets: Array<{ value: EquityMarket; label: string; hint: string }> = [
-  { value: "CN", label: "A股", hint: "支持 6 位沪深代码" },
-  { value: "US", label: "美股", hint: "支持英文股票代码" },
-  { value: "HK", label: "港股", hint: "支持 5 位港股代码" },
+  { value: "CN", label: "A股", hint: "代码不显示也能按名称导入" },
+  { value: "US", label: "美股", hint: "自动合并名称与下一行代码" },
+  { value: "HK", label: "港股", hint: "代码可选，优先按名称匹配" },
 ];
 
 type TesseractWorker = {
-  recognize: (image: File) => Promise<{ data: { text: string } }>;
+  recognize: (
+    image: Blob,
+    options?: Record<string, unknown>,
+    output?: { text?: boolean; tsv?: boolean },
+  ) => Promise<{ data: { text: string; tsv?: string } }>;
+  setParameters: (parameters: Record<string, string>) => Promise<void>;
   terminate: () => Promise<void>;
 };
 
@@ -58,6 +64,25 @@ async function ensureTesseractLoaded(): Promise<void> {
   });
 }
 
+async function enhanceScreenshotForOcr(file: File): Promise<Blob> {
+  const image = await createImageBitmap(file);
+  try {
+    const scale = image.width < 1200 ? Math.min(2, 1200 / image.width) : 1;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(image.width * scale);
+    canvas.height = Math.round(image.height * scale);
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) return file;
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.filter = "grayscale(1) contrast(1.28)";
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return await new Promise<Blob>((resolve) => canvas.toBlob((blob) => resolve(blob ?? file), "image/png"));
+  } finally {
+    image.close();
+  }
+}
+
 function numeric(value: string): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -78,24 +103,12 @@ export function PortfolioScreenshotImportV2() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  const existingSymbols = useMemo(() => {
-    const instrumentIds = new Set(
-      state.holdings
-        .filter((holding) => holding.status === "open")
-        .map((holding) => holding.instrumentId),
-    );
-    return new Set(
-      state.instruments
-        .filter((instrument) => instrument.market === market && instrumentIds.has(instrument.id))
-        .map((instrument) => normalizeSymbol(instrument.symbol, market)),
-    );
-  }, [market, state.holdings, state.instruments]);
-
   const diff = useMemo(() => ({
-    added: rows.filter((row) => !existingSymbols.has(normalizeSymbol(row.symbol, market))).length,
-    updated: rows.filter((row) => existingSymbols.has(normalizeSymbol(row.symbol, market))).length,
+    added: rows.filter((row) => !findMatchingInstrument(state.instruments, market, row)).length,
+    updated: rows.filter((row) => Boolean(findMatchingInstrument(state.instruments, market, row))).length,
+    nameOnly: rows.filter((row) => !row.symbol && !findMatchingInstrument(state.instruments, market, row)).length,
     lowConfidence: rows.filter((row) => row.confidence < 80 || row.warnings.length > 0).length,
-  }), [existingSymbols, market, rows]);
+  }), [market, rows, state.instruments]);
 
   const updateRow = <K extends keyof ScreenshotHoldingDraft>(index: number, key: K, value: ScreenshotHoldingDraft[K]) => {
     setRows((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, [key]: value } : row));
@@ -133,22 +146,36 @@ export function PortfolioScreenshotImportV2() {
           if (event.status) setStatus(`OCR：${event.status}`);
         },
       });
-      const texts: string[] = [];
+      const parsedResults = [];
       for (let index = 0; index < files.length; index += 1) {
-        setStatus(`正在识别第 ${index + 1} / ${files.length} 张截图`);
-        const result = await worker.recognize(files[index]);
-        texts.push(result.data.text);
+        setStatus(`正在增强并识别第 ${index + 1} / ${files.length} 张截图`);
+        const enhanced = await enhanceScreenshotForOcr(files[index]);
+        const pageModes = market === "US" ? ["6", "11"] : ["6"];
+        for (const [modeIndex, pageMode] of pageModes.entries()) {
+          await worker.setParameters({ preserve_interword_spaces: "1", tessedit_pageseg_mode: pageMode });
+          if (pageModes.length > 1) setStatus(`正在进行第 ${modeIndex + 1} / ${pageModes.length} 轮兼容识别`);
+          const result = await worker.recognize(enhanced, {}, { text: true, tsv: true });
+          parsedResults.push(parseBrokerScreenshotOcr(result.data.text, result.data.tsv ?? "", market));
+        }
       }
-      const combined = texts.join("\n\n--- 下一张截图 ---\n\n");
-      const parsed = parseBrokerScreenshotText(combined, market);
-      setRawText(parsed.rawText);
-      setRows(parsed.rows);
+      const combined = parsedResults.map((result) => result.rawText).join("\n\n--- 下一张截图 ---\n\n");
+      const deduplicated = new Map<string, ScreenshotHoldingDraft>();
+      for (const row of parsedResults.flatMap((result) => result.rows)) {
+        const symbol = normalizeSymbol(row.symbol, market);
+        const key = symbol || normalizeSecurityName(row.name);
+        const existing = deduplicated.get(key);
+        if (!existing || row.confidence > existing.confidence) deduplicated.set(key, row);
+      }
+      const parsedRows = [...deduplicated.values()];
+      const warnings = parsedResults.flatMap((result) => result.warnings);
+      setRawText(combined);
+      setRows(parsedRows);
       setProgress(100);
-      if (!parsed.rows.length) {
+      if (!parsedRows.length) {
         setStatus("未识别到完整持仓行");
-        setError(parsed.warnings.join("；"));
+        setError([...new Set(warnings)].join("；"));
       } else {
-        setStatus(`已识别 ${parsed.rows.length} 条${marketLabel(market)}持仓，请核对后一次性导入`);
+        setStatus(`已识别 ${parsedRows.length} 条${marketLabel(market)}持仓，代码缺失项已自动转为名称匹配`);
       }
     } catch (ocrError) {
       setStatus("识别失败，现有持仓未改变");
@@ -162,13 +189,9 @@ export function PortfolioScreenshotImportV2() {
   const confirmImport = async () => {
     setError("");
     setMessage("");
-    const normalizedRows = rows.map((row) => ({ ...row, symbol: normalizeSymbol(row.symbol, market), name: row.name.trim() }));
+    const normalizedRows = rows.map((row) => ({ ...row, symbol: row.symbol ? normalizeSymbol(row.symbol, market) : "", name: row.name.trim() }));
     if (!normalizedRows.length) {
       setError("没有可导入的识别结果。");
-      return;
-    }
-    if (normalizedRows.some((row) => !isValidMarketSymbol(row.symbol, market))) {
-      setError(`存在不符合${marketLabel(market)}规则的证券代码，请先校正。`);
       return;
     }
     if (normalizedRows.some((row) => !row.name || row.quantity <= 0)) {
@@ -226,7 +249,7 @@ export function PortfolioScreenshotImportV2() {
         <div className="mb-4">
           <p className="text-xs font-bold uppercase tracking-widest text-cyan-600">第二步</p>
           <h2 className="mt-1 text-xl font-black">上传{marketLabel(market)}持仓截图并识别</h2>
-          <p className="mt-1 text-sm text-slate-500">支持 PNG、JPG、WebP 和多张连续截图；请尽量保留证券代码、名称、数量、成本和现价。</p>
+          <p className="mt-1 text-sm text-slate-500">支持 PNG、JPG、WebP 和多张连续截图；证券代码可以不显示，系统会按名称识别并优先匹配已有标的。</p>
         </div>
         <label className="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 px-4 text-center hover:border-cyan-500 dark:border-slate-700">
           <ImageUp className="mb-2 h-7 w-7 text-cyan-600" />
@@ -256,22 +279,22 @@ export function PortfolioScreenshotImportV2() {
           <div className="mb-4">
             <p className="text-xs font-bold uppercase tracking-widest text-cyan-600">第三步</p>
             <h2 className="mt-1 text-xl font-black">核对识别结果</h2>
-            <p className="mt-1 text-sm text-slate-500">预计新增 {diff.added} 条、更新 {diff.updated} 条、需重点复核 {diff.lowConfidence} 条。截图之外的现有持仓不会自动删除或清仓。</p>
+            <p className="mt-1 text-sm text-slate-500">预计新增 {diff.added} 条、更新 {diff.updated} 条、名称待匹配 {diff.nameOnly} 条、需重点复核 {diff.lowConfidence} 条。截图之外的现有持仓不会自动删除或清仓。</p>
           </div>
           <div className="space-y-3">
             {rows.map((row, index) => (
-              <article key={`${row.symbol}-${index}`} className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+              <article key={`${row.symbol || normalizeSecurityName(row.name)}-${index}`} className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
                 <div className="mb-3 flex items-start justify-between gap-3">
                   <div>
                     <p className="font-black">{marketLabel(market)} · 第 {index + 1} 条</p>
-                    <p className="text-xs text-slate-500">识别置信度 {row.confidence}%</p>
+                    <p className="text-xs text-slate-500">识别置信度 {row.confidence}% · {findMatchingInstrument(state.instruments, market, row) ? "已匹配平台标的" : row.symbol ? "将按代码新建" : "将按名称安全导入"}</p>
                   </div>
                   <button type="button" aria-label={`移除第 ${index + 1} 条识别结果`} className="rounded-lg p-2 text-red-600 hover:bg-red-50" onClick={() => setRows((current) => current.filter((_, rowIndex) => rowIndex !== index))}>
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  <label className="grid gap-1 text-xs font-bold">证券代码<input className={fieldClass} value={row.symbol} onChange={(event) => updateRow(index, "symbol", event.target.value.toUpperCase())} /></label>
+                  <label className="grid gap-1 text-xs font-bold">证券代码（可选）<input className={fieldClass} value={row.symbol} placeholder="截图没有就留空" onChange={(event) => updateRow(index, "symbol", event.target.value.toUpperCase())} /></label>
                   <label className="grid gap-1 text-xs font-bold">证券名称<input className={fieldClass} value={row.name} onChange={(event) => updateRow(index, "name", event.target.value)} /></label>
                   <label className="grid gap-1 text-xs font-bold">持仓数量<input className={fieldClass} type="number" step="any" value={row.quantity} onChange={(event) => updateRow(index, "quantity", numeric(event.target.value))} /></label>
                   <label className="grid gap-1 text-xs font-bold">券商成本<input className={fieldClass} type="number" step="any" value={row.brokerCost} onChange={(event) => updateRow(index, "brokerCost", numeric(event.target.value))} /></label>
