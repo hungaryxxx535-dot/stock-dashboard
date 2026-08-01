@@ -35,6 +35,25 @@ export type ALiveData = {
   description?: string;
 };
 
+export type AMacroIndicator = {
+  id: string;
+  name: string;
+  value: number | null;
+  previous: number | null;
+  unit: string;
+  period: string;
+  source: string;
+  note?: string;
+};
+
+export type AMacroData = {
+  status: "updated" | "failed";
+  source: string;
+  updatedAt: string;
+  macro: AMacroIndicator[];
+  description?: string;
+};
+
 const getBeijingNow = () =>
   new Intl.DateTimeFormat("zh-CN", {
     timeZone: "Asia/Shanghai",
@@ -110,6 +129,40 @@ export async function getALiveQuotes(): Promise<ALiveData> {
   } catch (error) {
     const message = error instanceof Error ? error.message : "未知错误";
     return buildStaticFallback(`AKShare 服务连接失败：${message}`);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function getAMacroIndicators(): Promise<AMacroData> {
+  const baseUrl = process.env.AKSHARE_API_URL;
+  const token = process.env.AKSHARE_SERVICE_TOKEN;
+  if (!baseUrl) {
+    return { status: "failed", source: "本地静态回退", updatedAt: "", macro: [], description: "缺少 AKSHARE_API_URL，宏观数据未连接。" };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 7000);
+  try {
+    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/api/a/macro`, {
+      cache: "no-store",
+      signal: controller.signal,
+      headers: token ? { "x-service-token": token } : undefined,
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = (await response.json()) as AMacroData;
+    if (data.status !== "updated" || !Array.isArray(data.macro)) {
+      return { status: "failed", source: data.source ?? "AKShare宏观数据", updatedAt: data.updatedAt ?? "", macro: [], description: data.description ?? "AKShare 宏观接口返回异常" };
+    }
+    return data;
+  } catch (error) {
+    return {
+      status: "failed",
+      source: "本地静态回退",
+      updatedAt: "",
+      macro: [],
+      description: error instanceof Error ? `AKShare 宏观数据连接失败：${error.message}` : "AKShare 宏观数据连接失败",
+    };
   } finally {
     clearTimeout(timeout);
   }

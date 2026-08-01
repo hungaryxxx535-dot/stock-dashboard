@@ -20,7 +20,7 @@ ALLOWED_ORIGINS = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",
 # portfolio as the service-wide default watchlist.
 WATCHLIST: List[Dict[str, str]] = []
 
-_cache: Dict[str, Any] = {"a": None, "a_at": 0.0, "hk": None, "hk_at": 0.0}
+_cache: Dict[str, Any] = {"a": None, "a_at": 0.0, "hk": None, "hk_at": 0.0, "macro": None, "macro_at": 0.0}
 app = FastAPI(title="非哥行情服务", description="A股与港股观察服务", version="0.3.0")
 app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS if ALLOWED_ORIGINS != ["*"] else ["*"], allow_credentials=False, allow_methods=["GET"], allow_headers=["*"])
 
@@ -163,9 +163,96 @@ def build_hk(symbols: str) -> Dict[str, Any]:
     return {"status": "updated", "source": "AKShare stock_hk_spot_em / 东方财富港股行情", "updatedAt": f"{beijing_now()} 北京时间", "cacheSeconds": CACHE_SECONDS, "quoteCount": len(quotes), "quotes": quotes, "disclaimer": "港股行情来自 AKShare/公开行情接口，仅用于持仓观察和盈亏估算，不代表券商账户实时同步。"}
 
 
+def macro_direction(value: Optional[float], previous: Optional[float]) -> str:
+    if value is None or previous is None:
+        return "unknown"
+    if abs(value - previous) < 1e-9:
+        return "flat"
+    return "up" if value > previous else "down"
+
+
+def build_macro() -> Dict[str, Any]:
+    """PMI / CPI / PPI / Shibor from public AKShare endpoints (cache 1 hour)."""
+    pmi = ak.macro_china_pmi()
+    cpi = ak.macro_china_cpi()
+    ppi = ak.macro_china_ppi()
+    shibor = ak.rate_interbank(market="上海银行同业拆借市场", symbol="Shibor人民币", indicator="隔夜")
+
+    def first_row(df, month_col):
+        row = df.iloc[0]
+        return {"period": safe_str(row.get(month_col)), "row": row}
+
+    pmi_row = first_row(pmi, "月份")
+    cpi_row = first_row(cpi, "月份")
+    ppi_row = first_row(ppi, "月份")
+    shibor_latest = shibor.iloc[-1]
+    shibor_previous = shibor.iloc[-2] if len(shibor) > 1 else None
+
+    def pmi_series(rows):
+        return [safe_float(row.get("制造业-指数")) for _, row in rows.iterrows()][:2]
+
+    pmi_values = pmi_series(pmi)
+    cpi_values = [safe_float(cpi.iloc[0].get("全国-同比增长")), safe_float(cpi.iloc[1].get("全国-同比增长")) if len(cpi) > 1 else None]
+    ppi_values = [safe_float(ppi.iloc[0].get("当月同比增长")), safe_float(ppi.iloc[1].get("当月同比增长")) if len(ppi) > 1 else None]
+    shibor_values = [safe_float(shibor_latest.get("利率")), safe_float(shibor_previous.get("利率")) if shibor_previous is not None else None]
+
+    macro = [
+        {
+            "id": "cn_pmi", "name": "中国制造业PMI", "value": pmi_values[0], "previous": pmi_values[1],
+            "unit": "%", "period": safe_str(pmi_row["row"].get("月份")), "source": "AKShare/国家统计局",
+            "note": "制造业PMI" + ("处于扩张区间" if (pmi_values[0] or 0) >= 50 else "仍处于收缩区间") if pmi_values[0] is not None else "",
+        },
+        {
+            "id": "cn_cpi", "name": "中国CPI同比", "value": cpi_values[0], "previous": cpi_values[1],
+            "unit": "%", "period": safe_str(cpi_row["row"].get("月份")), "source": "AKShare/国家统计局",
+        },
+        {
+            "id": "cn_ppi", "name": "中国PPI同比", "value": ppi_values[0], "previous": ppi_values[1],
+            "unit": "%", "period": safe_str(ppi_row["row"].get("月份")), "source": "AKShare/国家统计局",
+        },
+        {
+            "id": "shibor_on", "name": "隔夜Shibor", "value": shibor_values[0], "previous": shibor_values[1],
+            "unit": "%", "period": safe_str(shibor_latest.get("报告日")), "source": "AKShare/中国货币网",
+        },
+        {
+            "id": "north_money", "name": "北向资金净流入", "value": None, "previous": None,
+            "unit": "百万元", "period": "", "source": "交易所",
+            "note": "北向资金日度净买入自2024年8月起停止披露，不再提供该指标。",
+        },
+    ]
+    return {
+        "status": "updated",
+        "source": "AKShare 宏观数据（PMI/CPI/PPI/Shibor）",
+        "updatedAt": f"{beijing_now()} 北京时间",
+        "cacheSeconds": 3600,
+        "macro": macro,
+        "disclaimer": "宏观数据来自 AKShare 公开接口，月度数据以国家统计局为准。",
+    }
+
+
+@app.get("/api/a/macro")
+def a_macro(force: bool = Query(default=False), x_service_token: Optional[str] = Header(default=None)):
+    require_token(x_service_token)
+    now = time.time()
+    if not force and _cache["macro"] and now - float(_cache["macro_at"]) < 3600:
+        data = dict(_cache["macro"])
+        data["cacheHit"] = True
+        data["servedAt"] = f"{beijing_now()} 北京时间"
+        return JSONResponse(content=data)
+    try:
+        data = build_macro()
+        data["cacheHit"] = False
+        data["servedAt"] = f"{beijing_now()} 北京时间"
+        _cache["macro"] = data
+        _cache["macro_at"] = now
+        return JSONResponse(content=data)
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"status": "failed", "source": "AKShare 宏观数据", "updatedAt": f"{beijing_now()} 北京时间", "error": str(exc), "macro": [], "disclaimer": "宏观接口失败时前端应保持既有降级状态。"})
+
+
 @app.get("/health")
 def health() -> Dict[str, Any]:
-    return {"status": "ok", "service": "fei-stock-akshare-api", "mode": "a-share + hk", "time": f"{beijing_now()} 北京时间", "cacheSeconds": CACHE_SECONDS, "watchlistCount": len(WATCHLIST), "hkEndpoint": "/api/hk/spot"}
+    return {"status": "ok", "service": "fei-stock-akshare-api", "mode": "a-share + hk + macro", "time": f"{beijing_now()} 北京时间", "cacheSeconds": CACHE_SECONDS, "watchlistCount": len(WATCHLIST), "hkEndpoint": "/api/hk/spot", "macroEndpoint": "/api/a/macro"}
 
 
 @app.get("/api/a/watchlist")

@@ -22,6 +22,11 @@ const catalog = [
   ["gold", "黄金", "美元/盎司"],
   ["oil", "原油", "美元/桶"],
   ["usdcny", "人民币汇率", "CNY/USD"],
+  ["north_money", "北向资金", "百万元"],
+  ["cn_pmi", "制造业PMI", "%"],
+  ["cn_cpi", "CPI同比", "%"],
+  ["cn_ppi", "PPI同比", "%"],
+  ["shibor_on", "Shibor隔夜", "%"],
 ] as const;
 
 const catalogCodeMap: Record<string, string[]> = {
