@@ -6,6 +6,7 @@ import { AlertTriangle, ArrowRight, CheckCircle2, Database, Download, Loader2, P
 import { usePortfolioData } from "@/components/data-provider";
 import { PortfolioScreenshotImportV2 } from "@/components/portfolio-screenshot-import-v2";
 import { calculatePortfolioMetrics, runStressTests } from "@/domain/engines/portfolio-risk-engine";
+import { buildPeriodReview } from "@/domain/engines/review-engine";
 import type { AppState } from "@/domain/model";
 import { isNameOnlySymbol, marketLabel, type EquityMarket } from "@/lib/portfolio-import/screenshot";
 
@@ -138,9 +139,148 @@ function RiskPage() {
   return <><PageHeader title="风险中心" description="集中度、相关性、汇率和压力测试均基于统一组合口径；缺失行情时明确标注估算。" /><div className="mb-4 grid gap-4 sm:grid-cols-3">{warnings.map((item) => <Panel key={item.name}><div className="flex justify-between"><b>{item.name}</b>{item.value > item.max ? <ShieldAlert className="text-red-600" /> : <CheckCircle2 className="text-emerald-600" />}</div><p className="mt-3 text-2xl font-black">{pct(item.value)}</p><p className="text-xs text-slate-500">规则上限 {item.max}%</p></Panel>)}</div><Panel title="压力测试"><div className="grid gap-3 lg:grid-cols-2">{stress.map((item) => <div key={item.id} className="rounded-xl border p-3"><div className="flex justify-between gap-3"><b>{item.name}</b><span className={item.severity === "high" ? "text-red-600" : "text-amber-600"}>{pct(item.impactPct)}</span></div><p className="text-sm text-slate-500">{money(item.impactAmount)} · {item.assumptions.join("；")}</p></div>)}</div></Panel></>;
 }
 function JournalPage() {
-  const { state, save } = usePortfolioData(); const [note, setNote] = useState("");
-  const add = () => { const instrument = state.instruments[0]; if (!instrument || !note.trim()) return; void save((current) => ({ ...current, journalEntries: [...current.journalEntries, { id: id("journal"), instrumentId: instrument.id, planId: null, originalThesis: note, plannedAction: "观察", actualAction: "观察", executedAt: new Date().toISOString(), price: 0, quantity: 0, pnl: 0, followedPlan: true, processQuality: "correct", resultQuality: "flat", strengths: ["记录及时"], mistakes: [], emotion: "平静", lessons: [], nextRules: [], attachmentRefs: [] }] })); setNote(""); };
-  return <><PageHeader title="复盘日志" description="分开记录过程质量和结果质量，避免只以盈亏评价决策。" /><div className="grid gap-4 lg:grid-cols-[1fr_1.5fr]"><Panel title="快速记录"><textarea className={`${inputClass} min-h-32 py-3`} placeholder="原始判断、执行偏差或新规则…" value={note} onChange={(e) => setNote(e.target.value)} /><button className={`${buttonClass} mt-3`} onClick={add}>保存复盘</button></Panel><Panel title="历史记录"><div className="space-y-3">{state.journalEntries.length ? state.journalEntries.map((entry) => <article key={entry.id} className="rounded-xl border p-3"><div className="flex justify-between"><b>{state.instruments.find((item) => item.id === entry.instrumentId)?.symbol}</b><time className="text-xs text-slate-500">{new Date(entry.executedAt).toLocaleString("zh-CN")}</time></div><p className="mt-2 text-sm">{entry.originalThesis}</p><p className="mt-2 text-xs text-slate-500">过程：{entry.processQuality} · 结果：{entry.resultQuality}</p></article>) : <p className="text-sm text-slate-500">还没有复盘记录。</p>}</div></Panel></div></>;
+  const { state, save } = usePortfolioData();
+  const [note, setNote] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const add = () => {
+    const instrument = state.instruments[0];
+    if (!instrument || !note.trim()) return;
+    void save((current) => ({
+      ...current,
+      journalEntries: [...current.journalEntries, {
+        id: id("journal"), instrumentId: instrument.id, planId: null, originalThesis: note,
+        plannedAction: "观察", actualAction: "观察", executedAt: new Date().toISOString(), price: 0, quantity: 0, pnl: 0,
+        followedPlan: true, processQuality: "correct", resultQuality: "flat", strengths: ["记录及时"], mistakes: [],
+        emotion: "平静", lessons: [], nextRules: [], attachmentRefs: [],
+      }],
+    }));
+    setNote("");
+  };
+
+  const loadMarketSummary = async (): Promise<{ summary: string; notes: string[]; source: string }> => {
+    try {
+      const response = await fetch("/api/market");
+      const data = await response.json();
+      const available = (data.cards ?? []).filter((card: { value: number | null }) => card.value !== null);
+      const movers = available
+        .filter((card: { changePct: number | null }) => card.changePct !== null)
+        .sort((a: { changePct: number }, b: { changePct: number }) => Math.abs(b.changePct) - Math.abs(a.changePct))
+        .slice(0, 5);
+      const summary = movers.length
+        ? `市场雷达捕获 ${available.length} 项数据，波动较大：${movers.map((card: { name: string; changePct: number }) => `${card.name} ${card.changePct > 0 ? "+" : ""}${card.changePct.toFixed(2)}%`).join("、")}`
+        : "市场数据暂不可用，复盘中的市场环境仅为结构提示。";
+      return { summary, notes: data.warnings?.slice(0, 5) ?? [], source: data.generatedAt ? `市场雷达 · ${new Date(data.generatedAt).toLocaleString("zh-CN")}` : "" };
+    } catch {
+      return { summary: "市场数据获取失败", notes: [], source: "" };
+    }
+  };
+
+  const generate = async (type: "weekly" | "monthly") => {
+    setBusy(true);
+    setMessage("");
+    try {
+      const marketSummary = await loadMarketSummary();
+      const review = buildPeriodReview(state, type, { marketSummary });
+      await save((current) => ({ ...current, reviews: [...current.reviews, review] }));
+      setMessage(`${review.title} 已生成并保存。`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "复盘生成失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reviews = [...state.reviews].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  return (
+    <>
+      <PageHeader title="复盘日志" description="分开记录过程质量和结果质量，避免只以盈亏评价决策。" />
+      <div className="grid gap-4 lg:grid-cols-[1fr_1.5fr]">
+        <Panel title="快速记录">
+          <textarea className={`${inputClass} min-h-32 py-3`} placeholder="原始判断、执行偏差或新规则…" value={note} onChange={(e) => setNote(e.target.value)} />
+          <button className={`${buttonClass} mt-3`} onClick={add}>保存复盘</button>
+        </Panel>
+        <Panel title="历史记录">
+          <div className="space-y-3">
+            {state.journalEntries.length ? state.journalEntries.map((entry) => (
+              <article key={entry.id} className="rounded-xl border p-3">
+                <div className="flex justify-between"><b>{state.instruments.find((item) => item.id === entry.instrumentId)?.symbol}</b><time className="text-xs text-slate-500">{new Date(entry.executedAt).toLocaleString("zh-CN")}</time></div>
+                <p className="mt-2 text-sm">{entry.originalThesis}</p>
+                <p className="mt-2 text-xs text-slate-500">过程：{entry.processQuality} · 结果：{entry.resultQuality}{entry.lessons.length ? ` · 教训：${entry.lessons.join("、")}` : ""}</p>
+              </article>
+            )) : <p className="text-sm text-slate-500">还没有复盘记录。</p>}
+          </div>
+        </Panel>
+      </div>
+      <Panel title="自动周/月复盘" className="mt-4">
+        <p className="mb-3 text-sm text-slate-500">根据导入快照、当前持仓与行情、计划状态和复盘日志自动生成；所有估算和缺失都会在报告里注明。</p>
+        <div className="flex flex-wrap gap-2">
+          <button className={buttonClass} disabled={busy} onClick={() => void generate("weekly")}><RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />生成周复盘</button>
+          <button className={buttonClass} disabled={busy} onClick={() => void generate("monthly")}><RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />生成月复盘</button>
+        </div>
+        {message && <p role="status" className="mt-3 text-sm font-bold text-cyan-700 dark:text-cyan-300">{message}</p>}
+        {reviews.length === 0 ? <p className="mt-4 text-sm text-slate-500">还没有自动复盘报告。</p> : (
+          <div className="mt-4 space-y-3">
+            {reviews.map((review) => (
+              <details key={review.id} className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                <summary className="cursor-pointer font-bold">{review.title}<span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-normal text-slate-500 dark:bg-slate-800">{review.type === "weekly" ? "周" : "月"}</span></summary>
+                <div className="mt-3 space-y-3 text-sm">
+                  <p className="font-bold">{review.summary}</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800">
+                      <b>组合表现</b>
+                      <p className="mt-1 text-xs text-slate-500">{review.portfolio.note}</p>
+                      <p className="mt-1">期初 {review.portfolio.startValue === null ? "—" : money(review.portfolio.startValue)} → 期末 {review.portfolio.endValue === null ? "—" : money(review.portfolio.endValue)}（{review.portfolio.changePct === null ? "—" : `${review.portfolio.changePct >= 0 ? "+" : ""}${review.portfolio.changePct.toFixed(1)}%`}）</p>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800">
+                      <b>风险</b>
+                      <p className="mt-1">总仓位 {pct(review.risk.endPositionPct ?? 0)}（期初 {review.risk.startPositionPct === null ? "—" : pct(review.risk.startPositionPct)}）· 最大单仓 {pct(review.risk.endLargestPct ?? 0)}</p>
+                      {review.risk.warnings.length > 0 && <ul className="mt-1 list-inside list-disc text-amber-700">{review.risk.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
+                    </div>
+                  </div>
+                  <div>
+                    <b>持仓变化（{review.holdings.length}）</b>
+                    <div className="mt-1 space-y-1">
+                      {review.holdings.filter((holding) => holding.status !== "unchanged").map((holding) => (
+                        <p key={holding.instrumentId}>{holding.status === "added" ? "新增" : holding.status === "removed" ? "移除" : "调整"}：{holding.name}（{holding.symbol}）{holding.startQuantity ?? "—"} → {holding.endQuantity} 股{holding.endPrice !== null ? ` · 现价 ${holding.endPrice}` : ""}</p>
+                      ))}
+                      {!review.holdings.some((holding) => holding.status !== "unchanged") && <p className="text-xs text-slate-500">期内持仓数量无变化。</p>}
+                    </div>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <b>计划执行</b>
+                      <p className="mt-1">期内创建 {review.plans.created} · 完成 {review.plans.completed} · 失效 {review.plans.invalidated} · 进行中 {review.plans.active}</p>
+                      {review.plans.touched.length > 0 && <ul className="mt-1 list-inside list-disc text-xs text-slate-500">{review.plans.touched.map((plan) => <li key={plan.id}>{plan.symbol}：{plan.status}</li>)}</ul>}
+                    </div>
+                    <div>
+                      <b>复盘日志</b>
+                      <p className="mt-1">共 {review.journal.count} 条 · 遵守计划 {review.journal.followedPlan} 条 · 过程正确 {review.journal.processCorrect} 条 · 盈利/亏损 {review.journal.resultProfit}/{review.journal.resultLoss}</p>
+                      {review.journal.lessons.length > 0 && <ul className="mt-1 list-inside list-disc text-xs text-slate-500">{review.journal.lessons.map((lesson) => <li key={lesson}>{lesson}</li>)}</ul>}
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800">
+                    <b>市场环境</b>
+                    <p className="mt-1">{review.market.summary}</p>
+                    {review.market.notes.length > 0 && <p className="mt-1 text-xs text-slate-500">{review.market.notes.join("；")}</p>}
+                    {review.market.source && <p className="mt-1 text-xs text-slate-500">{review.market.source}</p>}
+                  </div>
+                  {review.dataQuality.length > 0 && (
+                    <div className="rounded-xl bg-amber-50 p-3 text-xs text-amber-700 dark:bg-amber-950/20">
+                      <b>数据质量提示</b>
+                      <ul className="mt-1 list-inside list-disc">{review.dataQuality.map((item) => <li key={item}>{item}</li>)}</ul>
+                    </div>
+                  )}
+                </div>
+              </details>
+            ))}
+          </div>
+        )}
+      </Panel>
+    </>
+  );
 }
 function SettingsPage() {
   const { state, save, exportBackup, importBackup, legacyAvailable, migrateLegacy, resetDemo } = usePortfolioData(); const [message, setMessage] = useState("");

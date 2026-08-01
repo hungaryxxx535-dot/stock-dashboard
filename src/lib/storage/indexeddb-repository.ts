@@ -9,6 +9,12 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
+/** New collections that older local states may lack get empty defaults. */
+function withStateDefaults(value: unknown): AppState {
+  const base = (value ?? {}) as Partial<AppState>;
+  return AppStateSchema.parse({ reviews: [], ...base });
+}
+
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DATABASE_NAME, 1);
@@ -40,7 +46,7 @@ export class IndexedDbPortfolioRepository implements PortfolioRepository {
   async load(): Promise<AppState | null> {
     const value = await runTransaction<unknown>("readonly", (store) => store.get(STATE_KEY));
     if (!value) return null;
-    return AppStateSchema.parse(value);
+    return withStateDefaults(value);
   }
 
   async save(state: AppState): Promise<void> {
@@ -58,7 +64,7 @@ export class IndexedDbPortfolioRepository implements PortfolioRepository {
 
   async importBackup(raw: string): Promise<AppState> {
     const parsed: unknown = JSON.parse(raw);
-    return AppStateSchema.parse(parsed);
+    return withStateDefaults(parsed);
   }
 
   async createSnapshot(state: AppState, reason: string): Promise<PortfolioSnapshot> {
