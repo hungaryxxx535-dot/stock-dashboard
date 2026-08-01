@@ -135,7 +135,10 @@ async function enrichCnRows(
     const nameMatch = matchSecurityByName(row.name, index);
     if (nameMatch) {
       matched += 1;
-      const officialName = normalizeSecurityName(row.name) === normalizeSecurityName(nameMatch.n) ? nameMatch.n : row.name;
+      // Adopt the dictionary's official name: it repairs OCR spelling errors
+      // (胜安科技 -> 胜宏科技) and expands abbreviated display names
+      // (科创半导 -> 科创半导体ETF华夏) to what the exchange actually lists.
+      const officialName = nameMatch.n;
       rows.push({ ...row, symbol: nameMatch.c, name: officialName, candidates: ranked, matchChoice: nameMatch.c, warnings: [...row.warnings, `已按名称匹配代码 ${nameMatch.c}（${nameMatch.n}），请核对后导入`] });
       continue;
     }
@@ -214,7 +217,7 @@ async function ensureTesseractLoaded(): Promise<void> {
 async function enhanceScreenshotForOcr(file: File): Promise<Blob> {
   const image = await createImageBitmap(file);
   try {
-    const scale = image.width < 1200 ? Math.min(2, 1200 / image.width) : 1;
+    const scale = image.width < 1600 ? Math.min(3, 1600 / image.width) : 1;
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(image.width * scale);
     canvas.height = Math.round(image.height * scale);
@@ -222,8 +225,9 @@ async function enhanceScreenshotForOcr(file: File): Promise<Blob> {
     if (!context) return file;
     context.fillStyle = "#ffffff";
     context.fillRect(0, 0, canvas.width, canvas.height);
-    context.filter = "grayscale(1) contrast(1.28)";
+    context.filter = "grayscale(1) contrast(1.42) saturate(0.85)";
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    context.filter = "none";
     return await new Promise<Blob>((resolve) => canvas.toBlob((blob) => resolve(blob ?? file), "image/png"));
   } finally {
     image.close();
@@ -404,7 +408,7 @@ export function PortfolioScreenshotImportV2() {
       for (let index = 0; index < files.length; index += 1) {
         setStatus(`正在增强并识别第 ${index + 1} / ${files.length} 张截图`);
         const enhanced = await enhanceScreenshotForOcr(files[index]);
-        const pageModes = market === "US" ? ["6", "11"] : ["6"];
+        const pageModes = market === "US" ? ["6", "11"] : ["6", "4"];
         for (const [modeIndex, pageMode] of pageModes.entries()) {
           await worker.setParameters({ preserve_interword_spaces: "1", tessedit_pageseg_mode: pageMode });
           if (pageModes.length > 1) setStatus(`正在进行第 ${modeIndex + 1} / ${pageModes.length} 轮兼容识别`);
