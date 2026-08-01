@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -70,33 +71,83 @@ def hk_code(value: Any) -> str:
     return digits.zfill(5) if digits else raw.strip()
 
 
-def fetch_a_raw() -> Dict[str, Any]:
+def fetch_a_raw_eastmoney(codes: List[Dict[str, str]]) -> Dict[str, Any]:
     fields = "f12,f14,f2,f3,f4,f17,f15,f16,f18,f5,f6,f8,f7"
-    secids = ",".join(f"{market_prefix(x['code'])}.{x['code']}" for x in WATCHLIST)
+    secids = ",".join(f"{market_prefix(x['code'])}.{x['code']}" for x in codes)
     params = urlencode({"fltt": "2", "invt": "2", "fields": fields, "secids": secids})
     req = Request(f"https://push2.eastmoney.com/api/qt/ulist.np/get?{params}", headers={"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/"})
     with urlopen(req, timeout=12) as res:
         return json.loads(res.read().decode("utf-8"))
 
 
+def tencent_market(code: str) -> str:
+    return "sh" if code.startswith(("5", "6", "9")) else "sz"
+
+
+def fetch_a_raw_tencent(codes: List[Dict[str, str]]) -> Dict[str, Any]:
+    """Tencent qt.gtimg.cn fallback: reachable in more networks than EastMoney."""
+    symbols = ",".join(f"{tencent_market(x['code'])}{x['code']}" for x in codes)
+    req = Request(f"https://qt.gtimg.cn/q={symbols}", headers={"User-Agent": "Mozilla/5.0"})
+    with urlopen(req, timeout=12) as res:
+        raw = res.read().decode("gbk", errors="replace")
+    diff = []
+    for line in raw.strip().split(";"):
+        m = re.search(r'v_\w+="([^"]*)"', line)
+        if not m:
+            continue
+        fields = m.group(1).split("~")
+        if len(fields) < 35:
+            continue
+        price = safe_float(fields[3])
+        previous = safe_float(fields[4])
+        change_pct = round((price - previous) / previous * 100, 3) if price is not None and previous else None
+        change = round(price - previous, 3) if price is not None and previous is not None else None
+        diff.append({
+            "f12": fields[2],
+            "f14": fields[1],
+            "f2": price,
+            "f3": change_pct,
+            "f4": change,
+            "f17": safe_float(fields[5]),
+            "f15": safe_float(fields[33]),
+            "f16": safe_float(fields[34]),
+            "f18": previous,
+            "f5": safe_float(fields[6]),
+            "f6": None,
+            "f8": None,
+            "f7": None,
+        })
+    return {"data": {"diff": diff}}
+
+
+def fetch_a_raw(codes: List[Dict[str, str]]) -> Dict[str, Any]:
+    try:
+        return fetch_a_raw_eastmoney(codes)
+    except Exception:
+        return fetch_a_raw_tencent(codes)
+
+
 def a_quote(row: Dict[str, Any], item: Dict[str, str]) -> Dict[str, Any]:
     return {"symbol": item["code"], "name": safe_str(row.get("f14")) or item["name"], "type": item["type"], "role": item.get("role", ""), "price": safe_float(row.get("f2")), "changePct": safe_float(row.get("f3")), "change": safe_float(row.get("f4")), "open": safe_float(row.get("f17")), "high": safe_float(row.get("f15")), "low": safe_float(row.get("f16")), "preClose": safe_float(row.get("f18")), "amount": safe_float(row.get("f6")), "volume": safe_float(row.get("f5")), "turnover": safe_float(row.get("f8")), "amplitude": safe_float(row.get("f7")), "sourceName": safe_str(row.get("f14"))}
 
 
-def build_a() -> Dict[str, Any]:
-    raw = fetch_a_raw()
+def build_a(codes: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+    watch = codes if codes is not None else WATCHLIST
+    if not watch:
+        return {"status": "updated", "source": "EastMoney/Tencent lightweight quote endpoint via Python service", "updatedAt": f"{beijing_now()} 北京时间", "cacheSeconds": CACHE_SECONDS, "quoteCount": 0, "missingCount": 0, "missing": [], "watchlist": [], "quotes": [], "disclaimer": "尚未提供自选证券代码；可通过 /api/a/spot?symbols=600036,688008 指定。"}
+    raw = fetch_a_raw(watch)
     diff = raw.get("data", {}).get("diff", []) if isinstance(raw, dict) else []
     rows = {safe_str(x.get("f12")): x for x in diff if isinstance(x, dict)}
     quotes = []
     missing = []
-    for item in WATCHLIST:
+    for item in watch:
         row = rows.get(item["code"])
         if row:
             quotes.append(a_quote(row, item))
         else:
             missing.append(item)
             quotes.append({"symbol": item["code"], "name": item["name"], "type": item["type"], "role": item.get("role", ""), "price": None, "changePct": None, "change": None, "open": None, "high": None, "low": None, "preClose": None, "amount": None, "volume": None, "turnover": None, "amplitude": None, "sourceName": "", "error": "not_found"})
-    return {"status": "updated", "source": "EastMoney lightweight quote endpoint via Python service", "updatedAt": f"{beijing_now()} 北京时间", "cacheSeconds": CACHE_SECONDS, "quoteCount": len(quotes), "missingCount": len(missing), "missing": missing, "watchlist": WATCHLIST, "quotes": quotes, "disclaimer": "东方财富公开行情源，仅用于盘中观察，不作为唯一交易依据。"}
+    return {"status": "updated", "source": "EastMoney/Tencent lightweight quote endpoint via Python service", "updatedAt": f"{beijing_now()} 北京时间", "cacheSeconds": CACHE_SECONDS, "quoteCount": len(quotes), "missingCount": len(missing), "missing": missing, "watchlist": watch, "quotes": quotes, "disclaimer": "东方财富/腾讯公开行情源，仅用于盘中观察，不作为唯一交易依据。"}
 
 
 def build_hk(symbols: str) -> Dict[str, Any]:
@@ -124,19 +175,22 @@ def get_watchlist(x_service_token: Optional[str] = Header(default=None)) -> Dict
 
 
 @app.get("/api/a/spot")
-def a_spot(force: bool = Query(default=False), x_service_token: Optional[str] = Header(default=None)):
+def a_spot(force: bool = Query(default=False), symbols: str = Query(default=""), x_service_token: Optional[str] = Header(default=None)):
     require_token(x_service_token)
+    watch = [{"code": s.strip(), "name": s.strip(), "type": "stock"} for s in symbols.split(",") if s.strip()]
+    cache_key = ",".join(sorted(x["code"] for x in watch)) if watch else "default"
     now = time.time()
-    if not force and _cache["a"] and now - float(_cache["a_at"]) < CACHE_SECONDS:
+    if not force and _cache["a"] and _cache["a"].get("key") == cache_key and now - float(_cache["a_at"]) < CACHE_SECONDS:
         data = dict(_cache["a"])
+        data.pop("key", None)
         data["cacheHit"] = True
         data["servedAt"] = f"{beijing_now()} 北京时间"
         return JSONResponse(content=data)
     try:
-        data = build_a()
+        data = build_a(watch)
         data["cacheHit"] = False
         data["servedAt"] = f"{beijing_now()} 北京时间"
-        _cache["a"] = data
+        _cache["a"] = {**data, "key": cache_key}
         _cache["a_at"] = now
         return JSONResponse(content=data)
     except Exception as exc:

@@ -87,7 +87,7 @@ export async function getALiveQuotes(): Promise<ALiveData> {
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const timeout = setTimeout(() => controller.abort(), 7000);
 
   try {
     const url = `${baseUrl.replace(/\/$/, "")}/api/a/spot`;

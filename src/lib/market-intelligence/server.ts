@@ -35,7 +35,7 @@ function direction(value: number | null, previous: number | null): MacroIndicato
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(7000),
     headers: { Accept: "application/json", ...(init?.headers ?? {}) },
   });
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);

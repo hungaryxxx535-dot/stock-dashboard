@@ -21,6 +21,17 @@ export type ScreenshotParseResult = {
   rawText: string;
 };
 
+export type CnSecurityEntry = { c: string; n: string };
+
+export type CnNameIndex = Array<{ c: string; n: string; key: string }>;
+
+export type CnSecurityCandidate = { c: string; n: string; distance: number };
+
+export type RankedCnCandidate = CnSecurityCandidate & {
+  price: number | null;
+  priceDiffPct: number | null;
+};
+
 export type OcrWord = {
   text: string;
   left: number;
@@ -103,6 +114,23 @@ export function normalizeSecurityName(value: string): string {
     .replace(/[^\p{L}\p{N}]/gu, "");
 }
 
+/**
+ * Removes OCR artifacts from security names: spaces that Tesseract inserts
+ * between CJK characters ("招 商 银 行" -> "招商银行") and trailing ellipsis
+ * markers from truncated app labels ("Roundhill …" -> "Roundhill").
+ * Spaces between Latin words are preserved ("Arista Net").
+ */
+export function cleanOcrName(value: string): string {
+  let cleaned = value.normalize("NFKC").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+  cleaned = cleaned
+    .replace(/([\p{Script=Han}])[ ]+([\p{Script=Han}])/gu, "$1$2")
+    .replace(/([\p{Script=Han}])[ ]+/gu, "$1")
+    .replace(/[ ]+([\p{Script=Han}])/gu, "$1")
+    .replace(/[ ]*[….]{1,}[ ]*$/u, "")
+    .trim();
+  return cleaned;
+}
+
 function nameDistance(left: string, right: string): number {
   const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
   for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
@@ -154,6 +182,119 @@ export function findMatchingInstrument(
     .find(({ score }) => score <= 0.18)?.item;
 }
 
+export function buildCnNameIndex(entries: CnSecurityEntry[]): CnNameIndex {
+  return entries.map((entry) => ({ c: entry.c, n: entry.n, key: normalizeSecurityName(entry.n) }));
+}
+
+/**
+ * Resolves a name-only CN row to a real exchange code using the bundled
+ * securities dictionary. Conservative by design: exact normalized match,
+ * then a shortest containing name, then a single-character distance match.
+ */
+export function matchSecurityByName(name: string, index: CnNameIndex): CnSecurityEntry | null {
+  const normalized = normalizeSecurityName(cleanOcrName(name));
+  if (!normalized || normalized.length < 2) return null;
+
+  const exact = index.find((entry) => entry.key === normalized);
+  if (exact) return { c: exact.c, n: exact.n };
+
+  if (normalized.length >= 3) {
+    const containing = index
+      .filter((entry) => entry.key.startsWith(normalized))
+      .sort((left, right) => left.key.length - right.key.length);
+    if (containing.length === 1) return { c: containing[0].c, n: containing[0].n };
+    if (containing.length >= 2 && containing[0].key.length < containing[1].key.length) {
+      // unique shortest prefix (e.g. "科创半导" -> "科创半导体ETF华夏", not the longer device ETFs)
+      return { c: containing[0].c, n: containing[0].n };
+    }
+  }
+
+  let bestDistance = Infinity;
+  let best: CnNameIndex[number] | null = null;
+  let ambiguous = false;
+  for (const entry of index) {
+    if (Math.abs(entry.key.length - normalized.length) > 1 || entry.key.length < 3) continue;
+    const distance = nameDistance(normalized, entry.key);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = entry;
+      ambiguous = false;
+    } else if (distance === bestDistance) {
+      ambiguous = true;
+    }
+  }
+  if (best && bestDistance <= 1 && !ambiguous) return { c: best.c, n: best.n };
+  return null;
+}
+
+/**
+ * Returns the top name candidates for a CN row so the caller can disambiguate
+ * with additional evidence (e.g. a live quote close to the screenshot price).
+ */
+export function candidateSecurityMatches(name: string, index: CnNameIndex, limit = 8): CnSecurityCandidate[] {
+  const normalized = normalizeSecurityName(cleanOcrName(name));
+  if (!normalized || normalized.length < 2) return [];
+
+  const exact = index.find((entry) => entry.key === normalized);
+  if (exact) return [{ c: exact.c, n: exact.n, distance: 0 }];
+
+  const scored: CnSecurityCandidate[] = [];
+  if (normalized.length >= 3) {
+    for (const entry of index) {
+      if (!entry.key.startsWith(normalized)) continue;
+      scored.push({ c: entry.c, n: entry.n, distance: entry.key.length - normalized.length });
+    }
+  }
+  for (const entry of index) {
+    if (Math.abs(entry.key.length - normalized.length) > 1 || entry.key.length < 3) continue;
+    const distance = nameDistance(normalized, entry.key);
+    if (distance <= 1) scored.push({ c: entry.c, n: entry.n, distance });
+  }
+
+  const unique = new Map<string, CnSecurityCandidate>();
+  for (const candidate of scored) {
+    const existing = unique.get(candidate.c);
+    if (!existing || candidate.distance < existing.distance) unique.set(candidate.c, candidate);
+  }
+  return [...unique.values()]
+    .sort((left, right) => left.distance - right.distance || left.n.length - right.n.length)
+    .slice(0, limit);
+}
+
+/**
+ * Attaches live quote prices to candidates so the review UI can show how close
+ * each candidate is to the price read from the screenshot.
+ */
+export function rankCandidatesByPrice(
+  candidates: CnSecurityCandidate[],
+  quotes: Map<string, number>,
+  currentPrice: number | null,
+): RankedCnCandidate[] {
+  return candidates
+    .map((candidate) => {
+      const price = quotes.get(candidate.c) ?? null;
+      const priceDiffPct = price !== null && currentPrice && currentPrice > 0
+        ? (Math.abs(price - currentPrice) / currentPrice) * 100
+        : null;
+      return { ...candidate, price, priceDiffPct };
+    })
+    .sort((left, right) => {
+      const leftDiff = left.priceDiffPct ?? Infinity;
+      const rightDiff = right.priceDiffPct ?? Infinity;
+      return leftDiff - rightDiff || left.distance - right.distance;
+    });
+}
+
+/**
+ * Returns the single candidate whose live price is within tolerance of the
+ * screenshot price, or null when zero / multiple candidates qualify. Callers
+ * must never guess between ties.
+ */
+export function uniquePriceWinner(candidates: RankedCnCandidate[], tolerancePct = 3): RankedCnCandidate | null {
+  const winners = candidates.filter((candidate) => candidate.priceDiffPct !== null && candidate.priceDiffPct <= tolerancePct);
+  return winners.length === 1 ? winners[0] : null;
+}
+
 function localNameSymbol(name: string, market: EquityMarket): string {
   let hash = 2166136261;
   for (const character of normalizeSecurityName(name)) {
@@ -200,9 +341,9 @@ function inferName(line: string, symbolMatch: { raw: string; index: number }, ma
   if (!cleaned) return symbolMatch.raw.toUpperCase();
   if (market === "US") {
     const words = cleaned.split(" ").filter((word) => !stopWords.has(word.toUpperCase()));
-    return words.slice(0, 6).join(" ") || symbolMatch.raw.toUpperCase();
+    return cleanOcrName(words.slice(0, 6).join(" ") || symbolMatch.raw.toUpperCase());
   }
-  return cleaned.slice(0, 32);
+  return cleanOcrName(cleaned.slice(0, 32));
 }
 
 function rowWarnings(row: Pick<ScreenshotHoldingDraft, "symbol" | "name" | "quantity" | "brokerCost" | "currentPrice">, market: EquityMarket): string[] {
@@ -310,17 +451,46 @@ function cleanedName(value: string): string {
     .trim();
   if (!name || !/[\p{L}]/u.test(name)) return "";
   if (/^(?:SH|SZ|HK)?\d+$/.test(name) || stopWords.has(name.toUpperCase())) return "";
-  return name.slice(0, 40);
+  return cleanOcrName(name.slice(0, 40));
 }
 
 function buildLayoutRow(input: Omit<ScreenshotHoldingDraft, "warnings" | "confidence">, market: EquityMarket, wordConfidence: number): ScreenshotHoldingDraft {
+  const consistency = valueConsistencyRatio(input);
   const warnings = rowWarnings(input, market);
+  if (consistency !== null && consistency > 0.01) {
+    warnings.push(`数量×现价与市值相差约${(consistency * 100).toFixed(1)}%，请复核`);
+  }
   const completed = [input.name, input.quantity > 0, Number.isFinite(input.brokerCost), input.currentPrice !== null && input.currentPrice > 0, input.marketValue !== null && input.marketValue > 0].filter(Boolean).length;
+  let confidence = Math.max(35, Math.min(98, Math.round(wordConfidence * 0.45 + completed * 10)));
+  if (consistency !== null && consistency > 0.01) confidence = Math.max(35, confidence - 6);
   return {
     ...input,
-    confidence: Math.max(35, Math.min(98, Math.round(wordConfidence * 0.45 + completed * 10))),
+    confidence,
     warnings,
   };
+}
+
+function valueConsistencyRatio(row: { quantity: number; currentPrice: number | null; marketValue: number | null }): number | null {
+  if (!row.currentPrice || row.currentPrice <= 0 || row.quantity <= 0 || !row.marketValue || row.marketValue <= 0) return null;
+  const implied = row.quantity * row.currentPrice;
+  return Math.abs(implied - row.marketValue) / Math.max(row.marketValue, 1);
+}
+
+function duplicateScore(row: ScreenshotHoldingDraft): number {
+  const ratio = valueConsistencyRatio(row);
+  if (ratio === null) return 1;
+  return ratio <= 0.01 ? 3 : ratio <= 0.05 ? 2 : 0;
+}
+
+/**
+ * Picks the better of two duplicate rows: prefers the one whose quantity,
+ * current price and market value are internally consistent (e.g. quantity 110
+ * over a misread 10), then falls back to OCR confidence.
+ */
+export function preferRow(existing: ScreenshotHoldingDraft, candidate: ScreenshotHoldingDraft): boolean {
+  const candidateScore = duplicateScore(candidate);
+  const existingScore = duplicateScore(existing);
+  return candidateScore > existingScore || (candidateScore === existingScore && candidate.confidence > existing.confidence);
 }
 
 function parseFutuLines(lines: VisualLine[], market: EquityMarket): ScreenshotHoldingDraft[] {
@@ -378,7 +548,7 @@ function mergeDuplicateRows(rows: ScreenshotHoldingDraft[], market: EquityMarket
     const key = isValidMarketSymbol(normalizedSymbol, market) ? `symbol:${normalizedSymbol}` : `name:${normalizeSecurityName(row.name)}`;
     if (!key.endsWith(":")) {
       const existing = merged.get(key);
-      if (!existing || row.confidence > existing.confidence) merged.set(key, row);
+      if (!existing || preferRow(existing, row)) merged.set(key, row);
     }
   }
   return [...merged.values()];
@@ -420,7 +590,7 @@ export function applyScreenshotImport(
   const idFactory = options.idFactory ?? (() => crypto.randomUUID());
   const validRows = rows.map((row) => {
     const symbol = normalizeSymbol(row.symbol, market);
-    return { ...row, symbol: isValidMarketSymbol(symbol, market) ? symbol : "", name: row.name.trim() };
+    return { ...row, symbol: isValidMarketSymbol(symbol, market) ? symbol : "", name: cleanOcrName(row.name) };
   });
   if (!validRows.length) throw new Error("没有可导入的持仓记录");
   if (validRows.some((row) => !row.name)) throw new Error("每条持仓都必须识别到证券名称");

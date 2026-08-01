@@ -18,7 +18,7 @@ function direction(value: number | null, previous: number | null): MacroIndicato
 async function fetchText(url: string): Promise<string> {
   const response = await fetch(url, {
     cache: "no-store",
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(7000),
     headers: { Accept: "text/csv,text/plain,*/*" },
   });
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);

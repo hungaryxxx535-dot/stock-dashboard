@@ -1,5 +1,5 @@
 import { extendMarketIntelligence } from "@/lib/market-intelligence/extended";
-import { applyResilientFallbacks } from "@/lib/market-intelligence/resilient";
+import { applyResilientFallbacks, prepareResilientFallbacks } from "@/lib/market-intelligence/resilient";
 import { getMarketIntelligence } from "@/lib/market-intelligence/server";
 import type { SourceStatus } from "@/lib/market-intelligence/types";
 import type { MarketCard, UnifiedMarketSnapshot } from "@/lib/data-providers/market-types";
@@ -24,6 +24,26 @@ const catalog = [
   ["usdcny", "人民币汇率", "CNY/USD"],
 ] as const;
 
+const catalogCodeMap: Record<string, string[]> = {
+  sh: ["000001"],
+  hs300: ["399300"],
+  cyb: ["399006"],
+  star50: ["000688"],
+  hsi: ["HSI"],
+  hstech: ["HSTECH"],
+  sp500: [".INX"],
+  nasdaq: [".IXIC"],
+  dow: [".DJI"],
+};
+
+function normalizeIndexCode(value: string): string {
+  return value.trim().toUpperCase().replace(/^\./, "");
+}
+
+const CACHE_TTL_MS = 90_000;
+let cachedSnapshot: { payload: UnifiedMarketSnapshot; at: number } | null = null;
+let snapshotInFlight: Promise<UnifiedMarketSnapshot> | null = null;
+
 function mapState(status: SourceStatus["status"]) {
   if (status === "online") return "online" as const;
   if (status === "partial") return "partial" as const;
@@ -32,13 +52,53 @@ function mapState(status: SourceStatus["status"]) {
 }
 
 export async function getUnifiedMarketSnapshot(): Promise<UnifiedMarketSnapshot> {
-  const base = await getMarketIntelligence();
+  const now = Date.now();
+  if (cachedSnapshot && now - cachedSnapshot.at < CACHE_TTL_MS) return cachedSnapshot.payload;
+  if (snapshotInFlight) return snapshotInFlight;
+
+  const compute = async (): Promise<UnifiedMarketSnapshot> => {
+    const payload = await buildSnapshot();
+    cachedSnapshot = { payload, at: Date.now() };
+    return payload;
+  };
+
+  if (cachedSnapshot) {
+    // stale-while-revalidate: return the last known snapshot immediately and refresh in background.
+    snapshotInFlight = compute()
+      .catch((error) => {
+        snapshotInFlight = null;
+        throw error;
+      })
+      .finally(() => {
+        snapshotInFlight = null;
+      });
+    void snapshotInFlight.catch(() => undefined);
+    return cachedSnapshot.payload;
+  }
+
+  snapshotInFlight = compute().finally(() => {
+    snapshotInFlight = null;
+  });
+  return snapshotInFlight;
+}
+
+async function buildSnapshot(): Promise<UnifiedMarketSnapshot> {
+  const basePromise = getMarketIntelligence();
+  const fallbackPromise = prepareResilientFallbacks().catch(() => ({ index: null, news: null, commodity: null, sinaNews: null }));
+  const base = await basePromise;
   const extended = await extendMarketIntelligence(base);
-  const payload = await applyResilientFallbacks(extended);
+  const prepared = await fallbackPromise;
+  const payload = await applyResilientFallbacks(extended, prepared);
   const fetchedAt = payload.generatedAt || new Date().toISOString();
 
   const cards: MarketCard[] = catalog.map(([id, name, unit]) => {
-    const index = payload.indices.find((item) => item.name === name || item.code.toLowerCase().includes(id));
+    const index = payload.indices.find(
+      (item) =>
+        item.name === name ||
+        item.name.replace(/指$/, "") === name ||
+        item.code.toLowerCase().includes(id) ||
+        catalogCodeMap[id]?.some((code) => normalizeIndexCode(item.code) === normalizeIndexCode(code)),
+    );
     const macro = payload.macro.find((item) => item.id.toLowerCase() === id);
     const value = index?.close ?? macro?.value ?? null;
     const marketTime = index?.tradeDate ?? macro?.period ?? null;
