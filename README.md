@@ -10,6 +10,7 @@
 - 市场 Provider 聚合与超时、部分可用、缓存、过期、未配置、失败降级状态。
 - 市场雷达免密钥接入腾讯公开指数、新浪商品/汇率与新浪财经新闻；Tushare 配置后自动增强。
 - 研究 14 维框架、观察池、结构化计划、每日时间线、风险压力测试和过程/结果分离的复盘。
+- 自动日/周/月复盘与“今日归档”：一键生成可审计复盘报告，归档时创建日终快照。
 - 无密钥可构建；Supabase、Cron、Tushare、AKShare、FRED 和 Twelve Data 均为可选能力。
 
 ## 本地运行
@@ -26,6 +27,8 @@ npm run dev
 ```bash
 npm run services
 ```
+
+可选云同步（Supabase）：设置 `NEXT_PUBLIC_SUPABASE_URL` 与 `NEXT_PUBLIC_SUPABASE_ANON_KEY` 后自动启用；建表 SQL 见 `src/lib/storage/supabase-adapter.ts` 顶部注释。未配置时保持本地 IndexedDB 模式。
 
 “设置”支持导出 JSON 备份，“导入中心”保留 V2 JSON 严格校验恢复。OCR 运行组件和中英文模型首次使用时需要联网加载，但持仓图片不会发送到本站服务器或写入 GitHub。
 

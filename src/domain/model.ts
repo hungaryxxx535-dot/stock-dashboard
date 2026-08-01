@@ -242,7 +242,7 @@ export const ReviewHoldingChangeSchema = z.object({
 
 export const ReviewSchema = z.object({
   id: z.string().min(1),
-  type: z.enum(["weekly", "monthly"]),
+  type: z.enum(["daily", "weekly", "monthly"]),
   periodStart: z.string(),
   periodEnd: z.string(),
   createdAt: z.string(),

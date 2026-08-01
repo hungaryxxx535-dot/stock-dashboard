@@ -8,7 +8,9 @@ import { PortfolioScreenshotImportV2 } from "@/components/portfolio-screenshot-i
 import { calculatePortfolioMetrics, runStressTests } from "@/domain/engines/portfolio-risk-engine";
 import { buildPeriodReview } from "@/domain/engines/review-engine";
 import type { AppState } from "@/domain/model";
+import { loadMarketSummary } from "@/lib/market-summary";
 import { isNameOnlySymbol, marketLabel, type EquityMarket } from "@/lib/portfolio-import/screenshot";
+import { isSupabaseConfigured } from "@/lib/storage/supabase-adapter";
 
 type View = "home" | "portfolio" | "import" | "market" | "research" | "watchlist" | "plans" | "daily" | "risk" | "journal" | "settings";
 const money = (value: number) => new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(value);
@@ -130,8 +132,73 @@ function PlansPage() {
   return <><PageHeader title="交易计划" description="从草稿、等待、可执行到完成或失效，全程保留条件与状态。" action={<Link className={buttonClass} href="/plans/daily">每日流程</Link>} /><Panel className="mb-4"><div className="flex flex-col gap-2 sm:flex-row"><select className={inputClass} value={instrumentId} onChange={(e) => setInstrumentId(e.target.value)}>{state.instruments.map((item) => <option key={item.id} value={item.id}>{item.symbol} · {item.name}</option>)}</select><button onClick={add} className={buttonClass}><Plus className="h-4 w-4" />新建观察计划</button></div></Panel><div className="grid gap-4 lg:grid-cols-2">{state.tradePlans.map((plan) => <Panel key={plan.id}><div className="flex items-center justify-between"><b>{state.instruments.find((item) => item.id === plan.instrumentId)?.symbol}</b><span className="rounded-full bg-slate-100 px-2 py-1 text-xs dark:bg-slate-800">{plan.status}</span></div><p className="mt-3 text-sm">{plan.entryCondition}</p><p className="mt-2 text-xs text-slate-500">失效：{plan.invalidation}</p>{!["completed", "invalidated", "cancelled"].includes(plan.status) && <button onClick={() => advance(plan.id)} className="mt-4 text-sm font-bold text-cyan-600">推进状态 →</button>}</Panel>)}</div></>;
 }
 function DailyPage() {
-  const stages = [["08:30", "盘前", "检查隔夜市场、数据源与计划有效期"], ["09:25", "开盘", "只执行已满足条件的计划"], ["11:30", "午间", "记录偏离，不追逐未经计划的波动"], ["15:10", "收盘", "核对持仓与风险变化"], ["21:30", "美股", "检查美元暴露和跨市场相关性"], ["23:59", "归档", "创建日终快照并复盘流程质量"]];
-  return <><PageHeader title="每日作战流程" description="定时任务未配置密钥时保持手工模式；页面不会因此失效。" /><Panel><ol className="space-y-4">{stages.map(([time, title, detail]) => <li key={time} className="grid grid-cols-[4rem_1fr] gap-3"><time className="font-black text-cyan-600">{time}</time><div className="border-l-2 border-cyan-200 pl-4"><b>{title}</b><p className="text-sm text-slate-500">{detail}</p></div></li>)}</ol></Panel></>;
+  const { state, save } = usePortfolioData();
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const stages: Array<[string, string, string]> = [
+    ["08:30", "盘前", "检查隔夜市场、数据源与计划有效期"],
+    ["09:25", "开盘", "只执行已满足条件的计划"],
+    ["11:30", "午间", "记录偏离，不追逐未经计划的波动"],
+    ["15:10", "收盘", "核对持仓与风险变化"],
+    ["21:30", "美股", "检查美元暴露和跨市场相关性"],
+    ["23:59", "归档", "创建日终快照并生成日复盘"],
+  ];
+
+  const archiveToday = async () => {
+    setBusy(true);
+    setMessage("");
+    try {
+      const nowIso = new Date().toISOString();
+      const marketSummary = await loadMarketSummary();
+      const review = buildPeriodReview(state, "daily", { marketSummary });
+      const snapshot = {
+        id: id("snapshot"),
+        versionId: state.dataVersions.at(-1)?.id ?? "unknown",
+        createdAt: nowIso,
+        reason: "日终归档",
+        holdings: structuredClone(state.holdings),
+        cashBalances: structuredClone(state.cashBalances),
+        transactions: structuredClone(state.transactions),
+      };
+      await save((current) => ({
+        ...current,
+        snapshots: [...current.snapshots, snapshot],
+        reviews: [...current.reviews, review],
+      }));
+      setMessage(`归档完成：${review.title} 已生成，日终快照 ${snapshot.id} 已保存。`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "归档失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <PageHeader title="每日作战流程" description="定时任务未配置密钥时保持手工模式；页面不会因此失效。" />
+      <Panel>
+        <ol className="space-y-4">
+          {stages.map(([time, title, detail]) => (
+            <li key={time} className="grid grid-cols-[4rem_1fr] gap-3">
+              <time className="font-black text-cyan-600">{time}</time>
+              <div className="border-l-2 border-cyan-200 pl-4"><b>{title}</b><p className="text-sm text-slate-500">{detail}</p></div>
+            </li>
+          ))}
+        </ol>
+      </Panel>
+      <Panel title="今日归档" className="mt-4">
+        <p className="mb-3 text-sm text-slate-500">一键完成“23:59 归档”步骤：创建当前持仓/现金/交易的日终快照，并生成当日复盘报告。重复归档每次都会新建快照，不会覆盖历史。</p>
+        <button className={buttonClass} disabled={busy} onClick={() => void archiveToday()}>
+          <CheckCircle2 className="h-4 w-4" />执行今日归档
+        </button>
+        {message && <p role="status" className="mt-3 text-sm font-bold text-cyan-700 dark:text-cyan-300">{message}</p>}
+        <div className="mt-4 grid gap-2 text-sm">
+          <p className="font-bold">数据基线</p>
+          <p className="text-slate-500">持仓 {state.holdings.filter((holding) => holding.status === "open" && holding.quantity > 0).length} 项开放 · 快照 {state.snapshots.length} 份 · 复盘报告 {state.reviews.length} 份</p>
+        </div>
+      </Panel>
+    </>
+  );
 }
 function RiskPage() {
   const { state } = usePortfolioData(); const metrics = useMemo(() => calculatePortfolioMetrics(state), [state]); const stress = useMemo(() => runStressTests(state, metrics), [state, metrics]);
@@ -159,25 +226,7 @@ function JournalPage() {
     setNote("");
   };
 
-  const loadMarketSummary = async (): Promise<{ summary: string; notes: string[]; source: string }> => {
-    try {
-      const response = await fetch("/api/market");
-      const data = await response.json();
-      const available = (data.cards ?? []).filter((card: { value: number | null }) => card.value !== null);
-      const movers = available
-        .filter((card: { changePct: number | null }) => card.changePct !== null)
-        .sort((a: { changePct: number }, b: { changePct: number }) => Math.abs(b.changePct) - Math.abs(a.changePct))
-        .slice(0, 5);
-      const summary = movers.length
-        ? `市场雷达捕获 ${available.length} 项数据，波动较大：${movers.map((card: { name: string; changePct: number }) => `${card.name} ${card.changePct > 0 ? "+" : ""}${card.changePct.toFixed(2)}%`).join("、")}`
-        : "市场数据暂不可用，复盘中的市场环境仅为结构提示。";
-      return { summary, notes: data.warnings?.slice(0, 5) ?? [], source: data.generatedAt ? `市场雷达 · ${new Date(data.generatedAt).toLocaleString("zh-CN")}` : "" };
-    } catch {
-      return { summary: "市场数据获取失败", notes: [], source: "" };
-    }
-  };
-
-  const generate = async (type: "weekly" | "monthly") => {
+  const generate = async (type: "daily" | "weekly" | "monthly") => {
     setBusy(true);
     setMessage("");
     try {
@@ -217,6 +266,7 @@ function JournalPage() {
       <Panel title="自动周/月复盘" className="mt-4">
         <p className="mb-3 text-sm text-slate-500">根据导入快照、当前持仓与行情、计划状态和复盘日志自动生成；所有估算和缺失都会在报告里注明。</p>
         <div className="flex flex-wrap gap-2">
+          <button className={buttonClass} disabled={busy} onClick={() => void generate("daily")}><RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />生成日复盘</button>
           <button className={buttonClass} disabled={busy} onClick={() => void generate("weekly")}><RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />生成周复盘</button>
           <button className={buttonClass} disabled={busy} onClick={() => void generate("monthly")}><RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />生成月复盘</button>
         </div>
@@ -225,7 +275,7 @@ function JournalPage() {
           <div className="mt-4 space-y-3">
             {reviews.map((review) => (
               <details key={review.id} className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
-                <summary className="cursor-pointer font-bold">{review.title}<span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-normal text-slate-500 dark:bg-slate-800">{review.type === "weekly" ? "周" : "月"}</span></summary>
+                <summary className="cursor-pointer font-bold">{review.title}<span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-normal text-slate-500 dark:bg-slate-800">{review.type === "daily" ? "日" : review.type === "weekly" ? "周" : "月"}</span></summary>
                 <div className="mt-3 space-y-3 text-sm">
                   <p className="font-bold">{review.summary}</p>
                   <div className="grid gap-3 sm:grid-cols-2">
@@ -287,5 +337,5 @@ function SettingsPage() {
   const download = async () => { const raw = await exportBackup(); const url = URL.createObjectURL(new Blob([raw], { type: "application/json" })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `stock-war-room-backup-${new Date().toISOString().slice(0, 10)}.json`; anchor.click(); URL.revokeObjectURL(url); setMessage("加密边界提示：备份包含私有数据，请自行安全保管。"); };
   const upload = async (file?: File) => { if (!file) return; try { await importBackup(await file.text()); setMessage("备份已校验并恢复。"); } catch { setMessage("恢复失败，原数据未改变。"); } };
   const setLimit = (key: "maxTotalPositionPct" | "maxSinglePositionPct" | "maxTechnologyExposurePct", value: number) => save((current) => ({ ...current, settings: { ...current.settings, [key]: value, updatedAt: new Date().toISOString() } }));
-  return <><PageHeader title="设置与数据安全" description="真实持仓默认只存本机。云同步仅提供适配器，未配置 Supabase 时保持关闭。" /><div className="grid gap-4 lg:grid-cols-2"><Panel title="风险参数"><div className="space-y-3">{[["总仓位上限", "maxTotalPositionPct"], ["单标的上限", "maxSinglePositionPct"], ["科技暴露上限", "maxTechnologyExposurePct"]].map(([label, key]) => <label key={key} className="grid grid-cols-[1fr_6rem] items-center gap-3 text-sm">{label}<input type="number" min="0" max="100" className={inputClass} value={state.settings[key as keyof typeof state.settings] as number} onChange={(e) => void setLimit(key as "maxTotalPositionPct" | "maxSinglePositionPct" | "maxTechnologyExposurePct", Number(e.target.value))} /></label>)}</div></Panel><Panel title="备份与恢复"><div className="flex flex-wrap gap-2"><button className={buttonClass} onClick={download}><Download className="h-4 w-4" />导出 JSON</button><label className={buttonClass}><Upload className="h-4 w-4" />恢复备份<input className="sr-only" type="file" accept=".json,application/json" onChange={(e) => void upload(e.target.files?.[0])} /></label></div>{legacyAvailable && <button className="mt-3 text-sm font-bold text-cyan-600" onClick={() => void migrateLegacy()}>检测到 V1 数据：创建快照并迁移</button>}<p role="status" className="mt-3 text-xs text-amber-700">{message}</p></Panel><Panel title="存储状态"><dl className="grid grid-cols-2 gap-3 text-sm"><dt>当前模式</dt><dd className="text-right font-bold">{state.mode}</dd><dt>本地数据库</dt><dd className="text-right font-bold text-emerald-600">IndexedDB</dd><dt>云同步</dt><dd className="text-right font-bold">{state.settings.cloudSync}</dd><dt>数据版本</dt><dd className="text-right font-bold">Schema v{state.schemaVersion}</dd></dl></Panel><Panel title="演示与隐私"><p className="text-sm leading-6 text-slate-500">重置只会恢复匿名演示状态；公开仓库不包含真实持仓、账户名、截图或交易记录。</p><button className="mt-3 text-sm font-bold text-red-600" onClick={() => { if (window.confirm("确认用匿名演示数据覆盖当前浏览器数据？请先导出备份。")) void resetDemo(); }}>重置为匿名演示</button></Panel></div></>;
+  return <><PageHeader title="设置与数据安全" description="真实持仓默认只存本机。云同步仅提供适配器，未配置 Supabase 时保持关闭。" /><div className="grid gap-4 lg:grid-cols-2"><Panel title="风险参数"><div className="space-y-3">{[["总仓位上限", "maxTotalPositionPct"], ["单标的上限", "maxSinglePositionPct"], ["科技暴露上限", "maxTechnologyExposurePct"]].map(([label, key]) => <label key={key} className="grid grid-cols-[1fr_6rem] items-center gap-3 text-sm">{label}<input type="number" min="0" max="100" className={inputClass} value={state.settings[key as keyof typeof state.settings] as number} onChange={(e) => void setLimit(key as "maxTotalPositionPct" | "maxSinglePositionPct" | "maxTechnologyExposurePct", Number(e.target.value))} /></label>)}</div></Panel><Panel title="备份与恢复"><div className="flex flex-wrap gap-2"><button className={buttonClass} onClick={download}><Download className="h-4 w-4" />导出 JSON</button><label className={buttonClass}><Upload className="h-4 w-4" />恢复备份<input className="sr-only" type="file" accept=".json,application/json" onChange={(e) => void upload(e.target.files?.[0])} /></label></div>{legacyAvailable && <button className="mt-3 text-sm font-bold text-cyan-600" onClick={() => void migrateLegacy()}>检测到 V1 数据：创建快照并迁移</button>}<p role="status" className="mt-3 text-xs text-amber-700">{message}</p></Panel><Panel title="存储状态"><dl className="grid grid-cols-2 gap-3 text-sm"><dt>当前模式</dt><dd className="text-right font-bold">{state.mode}</dd><dt>本地数据库</dt><dd className="text-right font-bold text-emerald-600">IndexedDB</dd><dt>云同步</dt><dd className="text-right font-bold">{isSupabaseConfigured() ? "supabase_ready（已配置）" : state.settings.cloudSync}</dd><dt>数据版本</dt><dd className="text-right font-bold">Schema v{state.schemaVersion}</dd></dl></Panel><Panel title="演示与隐私"><p className="text-sm leading-6 text-slate-500">重置只会恢复匿名演示状态；公开仓库不包含真实持仓、账户名、截图或交易记录。</p><button className="mt-3 text-sm font-bold text-red-600" onClick={() => { if (window.confirm("确认用匿名演示数据覆盖当前浏览器数据？请先导出备份。")) void resetDemo(); }}>重置为匿名演示</button></Panel></div></>;
 }

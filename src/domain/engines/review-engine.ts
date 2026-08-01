@@ -24,9 +24,9 @@ function pct(value: number | null): string {
  * quotes (period-end), trade plans, journal entries and risk settings. Every
  * estimate or missing baseline is called out explicitly in dataQuality.
  */
-export function buildPeriodReview(state: AppState, type: "weekly" | "monthly", options: ReviewOptions = {}): Review {
+export function buildPeriodReview(state: AppState, type: Review["type"], options: ReviewOptions = {}): Review {
   const now = options.now ?? new Date();
-  const periodDays = type === "weekly" ? 7 : 30;
+  const periodDays = type === "daily" ? 1 : type === "weekly" ? 7 : 30;
   const periodStart = new Date(now.getTime() - periodDays * DAY_MS);
   const isoStart = periodStart.toISOString();
   const isoEnd = now.toISOString();
@@ -156,7 +156,7 @@ export function buildPeriodReview(state: AppState, type: "weekly" | "monthly", o
     periodStart: isoStart,
     periodEnd: isoEnd,
     createdAt: isoEnd,
-    title: `${rangeLabel} ${type === "weekly" ? "周" : "月"}复盘`,
+    title: `${rangeLabel} ${type === "daily" ? "日" : type === "weekly" ? "周" : "月"}复盘`,
     summary,
     portfolio: { startValue, endValue, changePct, note: portfolioNote },
     holdings,
