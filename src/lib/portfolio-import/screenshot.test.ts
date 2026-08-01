@@ -5,6 +5,7 @@ import {
   buildCnNameIndex,
   candidateSecurityMatches,
   cleanOcrName,
+  fixOcrNumberToken,
   findMatchingInstrument,
   isNameOnlySymbol,
   isValidMarketSymbol,
@@ -15,6 +16,7 @@ import {
   preferRow,
   rankCandidatesByPrice,
   uniquePriceWinner,
+  weightedNameDistance,
   type OcrWord,
   type ScreenshotHoldingDraft,
 } from "./screenshot";
@@ -247,5 +249,193 @@ describe("broker screenshot portfolio import", () => {
     const instrument = next.instruments.find((item) => item.name === "招商银行");
     expect(instrument).toBeDefined();
     expect(instrument?.name).toBe("招商银行");
+  });
+
+  it("fixes OCR digit confusions without touching Latin words", () => {
+    expect(fixOcrNumberToken("4O0")).toBe("400");
+    expect(fixOcrNumberToken("1OOO")).toBe("1000");
+    expect(fixOcrNumberToken("S0.50")).toBe("50.50");
+    expect(fixOcrNumberToken("2O4.9O0")).toBe("204.900");
+    expect(fixOcrNumberToken("7.500")).toBe("7.500");
+    expect(fixOcrNumberToken("DRAM")).toBe("DRAM");
+    expect(fixOcrNumberToken("COST")).toBe("COST");
+  });
+
+  it("weights OCR-confusable characters in name distance", () => {
+    expect(weightedNameDistance("Al创业板", "AI创业板")).toBe(0.5);
+    expect(weightedNameDistance("胜安科技", "胜宏科技")).toBe(1);
+    expect(weightedNameDistance("招商银行", "招商银行")).toBe(0);
+    expect(weightedNameDistance("科创S0", "科创50")).toBe(0.5);
+  });
+
+  it("keeps digits in holding names parsed from Ping-An-style blocks", () => {
+    const words = [
+      word("市值", 25, 100), word("持仓/可用", 345, 100), word("成本/现价", 485, 100),
+      word("科创200", 25, 200), word("+9800.80", 205, 200), word("14400", 375, 200), word("0.000", 500, 200),
+      word("22420.80", 25, 235), word("+77.9%", 205, 235), word("14400", 375, 235), word("1.557", 500, 235),
+      word("黄金9999", 25, 280), word("-1719.90", 205, 280), word("6500", 375, 280), word("8.781", 500, 280),
+      word("55354.00", 25, 315), word("-3.0%", 205, 315), word("6500", 375, 315), word("8.516", 500, 315),
+    ];
+    const result = parseBrokerScreenshotOcr(words.map((item) => item.text).join("\n"), tsv(words), "CN");
+
+    expect(result.rows).toHaveLength(2);
+    const first = result.rows.find((row) => row.name === "科创200");
+    const second = result.rows.find((row) => row.name === "黄金9999");
+    expect(first).toMatchObject({ symbol: "", quantity: 14400, brokerCost: 0, currentPrice: 1.557, marketValue: 22420.8 });
+    expect(second).toMatchObject({ symbol: "", quantity: 6500, brokerCost: 8.781, currentPrice: 8.516, marketValue: 55354 });
+    expect(result.rows.some((row) => /科创/.test(row.name))).toBe(true);
+  });
+
+  it("preserves negative broker cost from Ping-An credit holdings", () => {
+    const words = [
+      word("市值", 25, 100), word("持仓/可用", 345, 100), word("成本/现价", 485, 100),
+      word("澜起科技", 25, 200), word("+126520.00", 205, 200), word("75", 375, 200), word("-1482.033", 500, 200),
+      word("15367.50", 25, 235), word("-113.8%", 205, 235), word("75", 375, 235), word("204.900", 500, 235),
+    ];
+    const result = parseBrokerScreenshotOcr(words.map((item) => item.text).join("\n"), tsv(words), "CN");
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({
+      symbol: "",
+      name: "澜起科技",
+      quantity: 75,
+      brokerCost: -1482.033,
+      currentPrice: 204.9,
+      marketValue: 15367.5,
+    });
+    expect(result.rows[0].warnings.some((warning) => warning.includes("负成本"))).toBe(true);
+  });
+
+  it("maps columns correctly when the broker reorders the table headers", () => {
+    const words = [
+      word("名称代码", 35, 100), word("现价/成本", 330, 100), word("今日盈亏", 580, 100), word("市值/数量", 800, 100),
+      word("示例科技", 35, 200), word("48.000", 345, 200), word("+12.0", 595, 200), word("2,400.00", 815, 200),
+      word("SROB", 35, 235), word("44.500", 345, 235), word("50", 815, 235),
+    ];
+    const result = parseBrokerScreenshotOcr(words.map((item) => item.text).join("\n"), tsv(words), "US");
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({
+      symbol: "SROB",
+      name: "示例科技",
+      quantity: 50,
+      brokerCost: 44.5,
+      currentPrice: 48,
+      marketValue: 2400,
+    });
+  });
+
+  it("corrects a misread quantity using quantity x price = market value", () => {
+    const words = [
+      word("名称代码", 35, 100), word("市值/数量", 330, 100), word("现价/成本", 580, 100), word("今日盈亏", 800, 100),
+      word("示例成长", 35, 200), word("1,250.00", 340, 200), word("12.500", 590, 200), word("+0.0", 810, 200),
+      word("SGRO", 35, 235), word("1000", 400, 235), word("10.500", 610, 235),
+    ];
+    const result = parseBrokerScreenshotOcr(words.map((item) => item.text).join("\n"), tsv(words), "US");
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].quantity).toBe(100);
+    expect(result.rows[0].warnings.some((warning) => warning.includes("数量×现价与市值"))).toBe(false);
+  });
+
+  it("applies digit-confusion fixes inside parsed numbers", () => {
+    const words = [
+      word("名称代码", 35, 100), word("市值/数量", 330, 100), word("现价/成本", 580, 100), word("今日盈亏", 800, 100),
+      word("示例消费", 35, 200), word("8,1OO.OO", 340, 200), word("2O.500", 590, 200), word("+0.0", 810, 200),
+      word("SCON", 35, 235), word("4O0", 400, 235), word("2O.25O", 610, 235),
+    ];
+    const result = parseBrokerScreenshotOcr(words.map((item) => item.text).join("\n"), tsv(words), "US");
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({ symbol: "SCON", quantity: 400, brokerCost: 20.25, currentPrice: 20.5, marketValue: 8100 });
+  });
+
+  it("keeps digits in names for the text fallback too", () => {
+    const cn = parseBrokerScreenshotText("600001 科创200 100 1.20 1.30 130.00", "CN");
+    const us = parseBrokerScreenshotText("Sample SNET 8 42.00 48.00 384.00", "US");
+    expect(cn.rows[0]).toMatchObject({ symbol: "600001", name: "科创200", quantity: 100 });
+    expect(us.rows[0]).toMatchObject({ symbol: "SNET", name: "Sample", quantity: 8 });
+  });
+
+  it("resolves confusable Latin-case names when the dictionary has the entry", () => {
+    const index = buildCnNameIndex([
+      { c: "159915", n: "AI创业板ETF" },
+      { c: "300476", n: "胜宏科技" },
+    ]);
+    const candidates = candidateSecurityMatches("Al创业板", index);
+    expect(candidates[0]).toMatchObject({ c: "159915", distance: 0.5 });
+    expect(matchSecurityByName("Al创业板", index)).toMatchObject({ c: "159915" });
+  });
+
+  it("never guesses between equally-close names even with confusables", () => {
+    const index = buildCnNameIndex([
+      { c: "002590", n: "万安科技" },
+      { c: "300476", n: "胜宏科技" },
+    ]);
+    expect(matchSecurityByName("胜安科技", index)).toBeNull();
+  });
+
+  it("parses the real Ping-An credit-holding layout with all 12 rows intact", () => {
+    const holdings: Array<[string, string, string, string, string, string, string, string]> = [
+      ["澜起科技", "126520.00", "75", "-1482.033", "15367.50", "-113.826%", "75", "204.900"],
+      ["科创必50", "103448.95", "45600", "-0.031", "102052.80", "-7318.120%", "45600", "2.238"],
+      ["科创半导", "69296.08", "98600", "0.217", "90712.00", "323.650%", "98600", "0.920"],
+      ["科创200", "22426.51", "14400", "0.000", "22420.80", "-392758.494%", "14400", "1.557"],
+      ["招商银行", "8532.71", "1900", "35.129", "75278.00", "12.784%", "1900", "39.620"],
+      ["Al创业板", "7829.22", "14700", "1.876", "35412.30", "28.383%", "14700", "2.409"],
+      ["通信ETF", "5373.70", "109000", "0.533", "63438.00", "9.246%", "109000", "0.582"],
+      ["赛力斯", "-204.21", "900", "62.477", "56025.00", "-0.363%", "900", "62.250"],
+      ["曙26配债", "-1000.00", "10", "100.000", "1000.00", "-100.000%", "10", "100.000"],
+      ["黄金9999", "-1719.90", "6500", "8.781", "55354.00", "-3.013%", "6500", "8.516"],
+      ["胜安科技", "-51038.00", "800", "254.197", "152320.00", "-25.098%", "800", "190.400"],
+      ["中际旭创", "-51417.18", "300", "1073.401", "270603.00", "-15.967%", "300", "902.010"],
+    ];
+    const words: OcrWord[] = [
+      word("市值", 25, 100), word("持仓/可用", 345, 100), word("成本/现价", 485, 100),
+    ];
+    holdings.forEach(([name, pnlAmount, qty, cost, value, pnlPercent, qtyAgain, price], index) => {
+      const top = 200 + index * 80;
+      words.push(word(name, 25, top));
+      words.push(word(pnlAmount, 205, top));
+      words.push(word(qty, 375, top));
+      words.push(word(cost, 500, top));
+      words.push(word(value, 25, top + 35));
+      words.push(word(pnlPercent, 205, top + 35));
+      words.push(word(qtyAgain, 375, top + 35));
+      words.push(word(price, 500, top + 35));
+    });
+    const result = parseBrokerScreenshotOcr(words.map((item) => item.text).join("\n"), tsv(words), "CN");
+
+    expect(result.rows).toHaveLength(12);
+    expect(result.rows.find((row) => row.name === "科创200")).toMatchObject({
+      quantity: 14400, brokerCost: 0, currentPrice: 1.557, marketValue: 22420.8,
+    });
+    expect(result.rows.find((row) => row.name === "黄金9999")).toMatchObject({
+      quantity: 6500, brokerCost: 8.781, currentPrice: 8.516, marketValue: 55354,
+    });
+    expect(result.rows.find((row) => row.name === "中际旭创")).toMatchObject({
+      quantity: 300, brokerCost: 1073.401, currentPrice: 902.01, marketValue: 270603,
+    });
+    expect(result.rows.find((row) => row.name === "澜起科技")?.warnings.join(";")).toContain("负成本");
+    expect(result.rows.some((row) => row.name === "科创200" || row.name === "黄金9999")).toBe(true);
+  });
+
+  it("rebuilds a Futu A-share row from separate name and code lines", () => {
+    const words = [
+      word("名称代码", 35, 100), word("市值/数量", 330, 100), word("现价/成本", 580, 100), word("今日盈亏", 800, 100),
+      word("胜宏科技", 35, 200), word("152,320.00", 340, 200), word("190.400", 590, 200), word("-25.0%", 810, 200),
+      word("300476", 35, 235), word("800", 400, 235), word("254.197", 610, 235),
+    ];
+    const result = parseBrokerScreenshotOcr(words.map((item) => item.text).join("\n"), tsv(words), "CN");
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({
+      symbol: "300476",
+      name: "胜宏科技",
+      quantity: 800,
+      brokerCost: 254.197,
+      currentPrice: 190.4,
+      marketValue: 152320,
+    });
   });
 });
