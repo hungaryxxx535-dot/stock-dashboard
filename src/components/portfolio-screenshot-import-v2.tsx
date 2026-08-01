@@ -23,7 +23,11 @@ import {
   type ScreenshotHoldingDraft,
 } from "@/lib/portfolio-import/screenshot";
 
-const TESSERACT_SCRIPT = "https://cdn.jsdelivr.net/npm/tesseract.js@7/dist/tesseract.min.js";
+const TESSERACT_SCRIPT = "/tesseract/tesseract.min.js";
+const TESSERACT_CDN_FALLBACK = "https://cdn.jsdelivr.net/npm/tesseract.js@7/dist/tesseract.min.js";
+const TESSERACT_CORE_PATH = "/tesseract/";
+const TESSERACT_WORKER_PATH = "/tesseract/worker.min.js";
+const TESSERACT_LANG_PATH = "/tesseract/lang/";
 let cnDictionaryPromise: Promise<CnSecurityEntry[]> | null = null;
 
 function loadCnSecurityDictionary(): Promise<CnSecurityEntry[]> {
@@ -187,7 +191,12 @@ declare global {
       createWorker: (
         languages: string,
         engineMode?: number,
-        options?: { logger?: (message: { status?: string; progress?: number }) => void },
+        options?: {
+          logger?: (message: { status?: string; progress?: number }) => void;
+          corePath?: string;
+          workerPath?: string;
+          langPath?: string;
+        },
       ) => Promise<TesseractWorker>;
     };
   }
@@ -195,23 +204,24 @@ declare global {
 
 async function ensureTesseractLoaded(): Promise<void> {
   if (window.Tesseract) return;
-  const existing = document.querySelector<HTMLScriptElement>("script[data-feige-tesseract-v2]");
-  if (existing) {
-    await new Promise<void>((resolve, reject) => {
-      existing.addEventListener("load", () => resolve(), { once: true });
-      existing.addEventListener("error", () => reject(new Error("OCR 组件加载失败")), { once: true });
+  const loadScript = (src: string) =>
+    new Promise<void>((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = src;
+      script.async = true;
+      script.dataset.feigeTesseractV2 = "true";
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error("OCR 组件加载失败"));
+      document.head.appendChild(script);
     });
-    return;
+  try {
+    // Self-hosted engine first: fast, offline-capable, and stable for production.
+    await loadScript(TESSERACT_SCRIPT);
+    if (!window.Tesseract) throw new Error("本地 OCR 组件未初始化");
+  } catch {
+    // Defensive fallback for deployments where public assets are stripped.
+    await loadScript(TESSERACT_CDN_FALLBACK);
   }
-  await new Promise<void>((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = TESSERACT_SCRIPT;
-    script.async = true;
-    script.dataset.feigeTesseractV2 = "true";
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("OCR 组件加载失败，请检查网络后重试"));
-    document.head.appendChild(script);
-  });
 }
 
 async function enhanceScreenshotForOcr(file: File): Promise<Blob> {
@@ -403,6 +413,9 @@ export function PortfolioScreenshotImportV2() {
           if (typeof event.progress === "number") setProgress(Math.max(5, Math.min(92, Math.round(event.progress * 90))));
           if (event.status) setStatus(`OCR：${event.status}`);
         },
+        corePath: TESSERACT_CORE_PATH,
+        workerPath: TESSERACT_WORKER_PATH,
+        langPath: TESSERACT_LANG_PATH,
       });
       const parsedResults = [];
       for (let index = 0; index < files.length; index += 1) {
