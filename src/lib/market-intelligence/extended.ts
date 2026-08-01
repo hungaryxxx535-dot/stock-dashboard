@@ -1,4 +1,4 @@
-import { getALiveQuotes } from "@/lib/aLiveApi";
+import { getALiveQuotes, getAMacroIndicators, type AMacroIndicator } from "@/lib/aLiveApi";
 import type { MacroIndicator, MarketIntelligencePayload, MarketRegime, SourceStatus } from "./types";
 
 const FRED_CSV_ENDPOINT = "https://fred.stlouisfed.org/graph/fredgraph.csv";
@@ -15,10 +15,86 @@ function direction(value: number | null, previous: number | null): MacroIndicato
   return value > previous ? "up" : "down";
 }
 
+function macroFromAkshare(item: AMacroIndicator): MacroIndicator {
+  let interpretation = item.note ?? "用于判断中国经济与流动性环境";
+  if (item.id === "cn_pmi" && item.value !== null) {
+    interpretation = item.value >= 50 ? "制造业处于扩张区间" : "制造业仍处于收缩区间";
+  }
+  if (item.id === "cn_cpi" && item.value !== null) {
+    interpretation = item.value < 1 ? "通胀偏低，内需修复仍需观察" : item.value > 3 ? "通胀偏高，政策宽松空间可能受约束" : "通胀处于相对温和区间";
+  }
+  if (item.id === "cn_ppi" && item.value !== null) {
+    interpretation = item.value >= 0 ? "工业品价格同比转正或维持正增长" : "工业品价格仍承压，关注企业盈利修复";
+  }
+  if (item.id === "shibor_on" && item.value !== null) {
+    interpretation = item.value < 2 ? "短端流动性相对宽松" : "短端资金价格偏高，关注流动性扰动";
+  }
+  return {
+    id: item.id,
+    name: item.name,
+    value: item.value,
+    previous: item.previous,
+    unit: item.unit,
+    period: item.period,
+    direction: direction(item.value, item.previous),
+    interpretation,
+    source: item.source,
+  };
+}
+
+async function loadAkshareMacro(): Promise<{
+  macro: MacroIndicator[];
+  status: SourceStatus;
+  warnings: string[];
+}> {
+  try {
+    const live = await getAMacroIndicators();
+    if (live.status !== "updated" || !live.macro.length) {
+      return {
+        macro: [],
+        warnings: [live.description || "AKShare 宏观数据未更新"],
+        status: {
+          id: "akshare-macro",
+          name: "AKShare宏观数据",
+          status: "not_configured",
+          updatedAt: new Date().toISOString(),
+          message: live.description || "尚未连接 AKShare 宏观数据服务",
+        },
+      };
+    }
+    const macro = live.macro.map(macroFromAkshare);
+    const disclosed = live.macro.find((item) => item.id === "north_money");
+    const warnings = disclosed?.note ? [disclosed.note] : [];
+    return {
+      macro,
+      warnings,
+      status: {
+        id: "akshare-macro",
+        name: "AKShare宏观数据",
+        status: "online",
+        updatedAt: new Date().toISOString(),
+        message: `已读取${macro.length}项宏观指标（PMI/CPI/PPI/Shibor）`,
+      },
+    };
+  } catch (error) {
+    return {
+      macro: [],
+      warnings: [error instanceof Error ? error.message : "AKShare 宏观数据读取失败"],
+      status: {
+        id: "akshare-macro",
+        name: "AKShare宏观数据",
+        status: "error",
+        updatedAt: new Date().toISOString(),
+        message: error instanceof Error ? error.message : "读取失败",
+      },
+    };
+  }
+}
+
 async function fetchText(url: string): Promise<string> {
   const response = await fetch(url, {
     cache: "no-store",
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(7000),
     headers: { Accept: "text/csv,text/plain,*/*" },
   });
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
@@ -286,21 +362,24 @@ function recomputeRegime(payload: MarketIntelligencePayload): MarketRegime {
 }
 
 export async function extendMarketIntelligence(payload: MarketIntelligencePayload): Promise<MarketIntelligencePayload> {
-  const [akshare, publicFred] = await Promise.all([
+  const [akshare, publicFred, akshareMacro] = await Promise.all([
     loadAksharePortfolioPulse(),
     payload.macro.some((item) => item.source === "FRED") ? Promise.resolve(null) : loadFredPublicFallback(),
+    loadAkshareMacro(),
   ]);
 
-  const macro = [...payload.macro, ...akshare.macro, ...(publicFred?.macro ?? [])];
+  const macro = [...payload.macro, ...akshare.macro, ...(publicFred?.macro ?? []), ...akshareMacro.macro];
   const sourceStatus = [
     ...payload.sourceStatus.filter((item) => !(item.id === "fred" && publicFred?.macro.length)),
     akshare.status,
     ...(publicFred ? [publicFred.status] : []),
+    akshareMacro.status,
   ];
   const warnings = [
     ...payload.warnings.filter((warning) => !(publicFred?.macro.length && warning.includes("FRED尚未配置"))),
     ...akshare.warnings,
     ...(publicFred?.warnings ?? []),
+    ...akshareMacro.warnings,
   ];
   const extended = { ...payload, macro, sourceStatus, warnings };
   return { ...extended, regime: recomputeRegime(extended) };

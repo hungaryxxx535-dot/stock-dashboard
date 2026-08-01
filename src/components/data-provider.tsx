@@ -6,6 +6,8 @@ import { AppStateSchema, type AppState } from "@/domain/model";
 import { demoState } from "@/domain/demo-state";
 import { IndexedDbPortfolioRepository } from "@/lib/storage/indexeddb-repository";
 import { hasLegacyBrowserData, migrateLegacyBrowserData } from "@/lib/storage/migration";
+import type { PortfolioRepository } from "@/lib/storage/repository";
+import { isSupabaseConfigured, SupabasePortfolioRepository } from "@/lib/storage/supabase-adapter";
 
 type DataContextValue = {
   state: AppState; ready: boolean; error: string; legacyAvailable: boolean;
@@ -16,7 +18,9 @@ type DataContextValue = {
 };
 
 const DataContext = createContext<DataContextValue | null>(null);
-const repository = new IndexedDbPortfolioRepository();
+const repository: PortfolioRepository = isSupabaseConfigured()
+  ? new SupabasePortfolioRepository()
+  : new IndexedDbPortfolioRepository();
 const freshDemoState = (): AppState => {
   const now = new Date().toISOString();
   return AppStateSchema.parse({ ...structuredClone(demoState), initializedAt: now, updatedAt: now });

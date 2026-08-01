@@ -42,6 +42,7 @@ export const demoState: AppState = {
   researchSnapshots: [],
   tradePlans: [{ id: "plan-demo", instrumentId: "demo-a1", market: "CN", direction: "observe", planType: "swing", targetPositionPct: 10, entryCondition: "等待有效行情与市场环境确认", entryRange: "未设置", addCondition: "未设置", reduceCondition: "科技暴露超过上限时复核", stopLoss: null, takeProfit: null, invalidation: "数据持续缺失", catalysts: [], risks: ["演示数据不可用于交易"], validUntil: "2026-12-31T23:59:59.000Z", status: "waiting", note: "演示计划，不构成交易建议。", createdAt: now, updatedAt: now }],
   journalEntries: [],
+  reviews: [],
   riskRules: [
     { id: "risk-total", name: "总仓位上限", metric: "totalPositionPct", warningThreshold: 75, criticalThreshold: 90, enabled: true },
     { id: "risk-single", name: "单标的集中度", metric: "maxSinglePositionPct", warningThreshold: 15, criticalThreshold: 25, enabled: true },

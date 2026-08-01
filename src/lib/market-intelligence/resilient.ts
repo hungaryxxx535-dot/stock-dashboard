@@ -1,5 +1,40 @@
-import { loadEastmoneyIndicesFallback, loadGoogleNewsFallback } from "./public-fallbacks";
+import {
+  loadEastmoneyIndicesFallback,
+  loadGoogleNewsFallback,
+  loadSinaCommodityFallback,
+  loadSinaNewsFallback,
+  loadTencentIndicesFallback,
+} from "./public-fallbacks";
 import type { MarketIntelligencePayload, MarketRegime, NewsItem } from "./types";
+
+type IndexFallback = Awaited<ReturnType<typeof loadTencentIndicesFallback>>;
+type NewsFallback = Awaited<ReturnType<typeof loadGoogleNewsFallback>>;
+type CommodityFallback = Awaited<ReturnType<typeof loadSinaCommodityFallback>>;
+type SinaNewsFallback = Awaited<ReturnType<typeof loadSinaNewsFallback>>;
+
+export type PreparedFallbacks = {
+  index: IndexFallback | null;
+  news: NewsFallback | null;
+  commodity: CommodityFallback | null;
+  sinaNews: SinaNewsFallback | null;
+};
+
+async function loadIndexFallbacks(): Promise<IndexFallback> {
+  const tencent = await loadTencentIndicesFallback();
+  if (tencent.indices.length >= 3) return tencent;
+  const eastmoney = await loadEastmoneyIndicesFallback();
+  return eastmoney.indices.length > tencent.indices.length ? eastmoney : tencent;
+}
+
+export async function prepareResilientFallbacks(): Promise<PreparedFallbacks> {
+  const [index, news, commodity, sinaNews] = await Promise.all([
+    loadIndexFallbacks(),
+    loadGoogleNewsFallback(),
+    loadSinaCommodityFallback(),
+    loadSinaNewsFallback(),
+  ]);
+  return { index, news, commodity, sinaNews };
+}
 
 function recomputeRegime(payload: MarketIntelligencePayload): MarketRegime {
   let score = 50;
@@ -97,34 +132,37 @@ function mergeNews(primary: NewsItem[], fallback: NewsItem[]): NewsItem[] {
     .slice(0, 50);
 }
 
-export async function applyResilientFallbacks(payload: MarketIntelligencePayload): Promise<MarketIntelligencePayload> {
+export async function applyResilientFallbacks(payload: MarketIntelligencePayload, prepared?: PreparedFallbacks): Promise<MarketIntelligencePayload> {
   const needIndices = payload.indices.length < 3;
   const needNews = payload.news.length < 8;
-  const [indexFallback, newsFallback] = await Promise.all([
-    needIndices ? loadEastmoneyIndicesFallback() : Promise.resolve(null),
-    needNews ? loadGoogleNewsFallback() : Promise.resolve(null),
-  ]);
+  const { index: indexFallback, news: newsFallback, commodity, sinaNews } = prepared ?? await prepareResilientFallbacks();
 
   const indexMap = new Map(payload.indices.map((item) => [item.code, item]));
-  indexFallback?.indices.forEach((item) => {
+  if (needIndices) indexFallback?.indices.forEach((item) => {
     if (!indexMap.has(item.code)) indexMap.set(item.code, item);
   });
   const indices = [...indexMap.values()];
-  const news = mergeNews(payload.news, newsFallback?.news ?? []);
+  const macro = [...payload.macro, ...(commodity?.macro ?? [])];
+  const news = needNews ? mergeNews(payload.news, [...(newsFallback?.news ?? []), ...(sinaNews?.news ?? [])]) : payload.news;
   const sourceStatus = [
     ...payload.sourceStatus,
-    ...(indexFallback ? [indexFallback.status] : []),
-    ...(newsFallback ? [newsFallback.status] : []),
+    ...(needIndices && indexFallback ? [indexFallback.status] : []),
+    ...(needNews && newsFallback ? [newsFallback.status] : []),
+    ...(commodity ? [commodity.status] : []),
+    ...(needNews && sinaNews ? [sinaNews.status] : []),
   ];
   const warnings = [
     ...payload.warnings,
-    ...(indexFallback?.warnings ?? []),
-    ...(newsFallback?.warnings ?? []),
+    ...(needIndices ? (indexFallback?.warnings ?? []) : []),
+    ...(needNews ? (newsFallback?.warnings ?? []) : []),
+    ...(commodity?.warnings ?? []),
+    ...(needNews ? (sinaNews?.warnings ?? []) : []),
   ];
 
   const extended = {
     ...payload,
     indices,
+    macro,
     news,
     sourceStatus,
     warnings,

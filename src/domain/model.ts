@@ -228,6 +228,63 @@ export const JournalEntrySchema = z.object({
   attachmentRefs: z.array(z.string()),
 });
 
+export const ReviewHoldingChangeSchema = z.object({
+  instrumentId: z.string().min(1),
+  symbol: z.string(),
+  name: z.string(),
+  market: z.string(),
+  startQuantity: z.number().nullable(),
+  endQuantity: z.number(),
+  startPrice: z.number().nullable(),
+  endPrice: z.number().nullable(),
+  status: z.enum(["added", "removed", "changed", "unchanged"]),
+});
+
+export const ReviewSchema = z.object({
+  id: z.string().min(1),
+  type: z.enum(["daily", "weekly", "monthly"]),
+  periodStart: z.string(),
+  periodEnd: z.string(),
+  createdAt: z.string(),
+  title: z.string(),
+  summary: z.string(),
+  portfolio: z.object({
+    startValue: z.number().nullable(),
+    endValue: z.number().nullable(),
+    changePct: z.number().nullable(),
+    note: z.string(),
+  }),
+  holdings: z.array(ReviewHoldingChangeSchema),
+  plans: z.object({
+    created: z.number(),
+    completed: z.number(),
+    invalidated: z.number(),
+    active: z.number(),
+    touched: z.array(z.object({ id: z.string(), symbol: z.string(), status: z.string(), updatedAt: z.string() })),
+  }),
+  journal: z.object({
+    count: z.number(),
+    followedPlan: z.number(),
+    processCorrect: z.number(),
+    resultProfit: z.number(),
+    resultLoss: z.number(),
+    lessons: z.array(z.string()),
+  }),
+  risk: z.object({
+    startPositionPct: z.number().nullable(),
+    endPositionPct: z.number().nullable(),
+    startLargestPct: z.number().nullable(),
+    endLargestPct: z.number().nullable(),
+    warnings: z.array(z.string()),
+  }),
+  market: z.object({
+    summary: z.string(),
+    notes: z.array(z.string()),
+    source: z.string(),
+  }),
+  dataQuality: z.array(z.string()),
+});
+
 export const RiskRuleSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -284,6 +341,7 @@ export const AppStateSchema = z.object({
   researchSnapshots: z.array(ResearchSnapshotSchema),
   tradePlans: z.array(TradePlanSchema),
   journalEntries: z.array(JournalEntrySchema),
+  reviews: z.array(ReviewSchema),
   riskRules: z.array(RiskRuleSchema),
   alerts: z.array(AlertSchema),
   dataSourceStatuses: z.array(DataSourceStatusSchema),
@@ -305,6 +363,7 @@ export type WatchlistItem = z.infer<typeof WatchlistItemSchema>;
 export type ResearchSnapshot = z.infer<typeof ResearchSnapshotSchema>;
 export type TradePlan = z.infer<typeof TradePlanSchema>;
 export type JournalEntry = z.infer<typeof JournalEntrySchema>;
+export type Review = z.infer<typeof ReviewSchema>;
 export type RiskRule = z.infer<typeof RiskRuleSchema>;
 export type Alert = z.infer<typeof AlertSchema>;
 export type DataSourceStatus = z.infer<typeof DataSourceStatusSchema>;
