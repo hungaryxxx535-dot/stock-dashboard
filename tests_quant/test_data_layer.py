@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import time
 import unittest
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -9,6 +10,8 @@ from hermes_quant.data.models import Announcement, DailyBar, IntervalStatus, Sec
 from hermes_quant.data.repository import QuantRepository
 from hermes_quant.data.universe import PointInTimeUniverse
 from hermes_quant.data.validation import validate_daily_bars
+from hermes_quant.data.provider import DataProvider, ProviderResult, ResilientProvider
+from hermes_quant.data.market_rules import PriceLimitRuleResolver
 
 
 class DataLayerTests(unittest.TestCase):
@@ -39,6 +42,34 @@ class DataLayerTests(unittest.TestCase):
         with self.repo.session() as connection:
             row = connection.execute("SELECT status,row_count,error_type FROM data_sync_runs WHERE run_id=?", (run_id,)).fetchone()
         self.assertEqual(tuple(row), ("failed", 0, "TimeoutError"))
+
+    def test_board_price_limit_rules_are_date_effective(self) -> None:
+        with self.repo.transaction() as connection:
+            connection.executemany("INSERT INTO price_limit_rules(board,effective_from,effective_to,risk_status,limit_up_pct,limit_down_pct,source) VALUES(?,?,?,?,?,?,?)", [
+                ("MAIN", "2020-01-01", None, None, 0.10, 0.10, "TEST_FIXTURE"),
+                ("CHINEXT", "2020-08-24", None, None, 0.20, 0.20, "TEST_FIXTURE"),
+            ])
+        resolver = PriceLimitRuleResolver(self.repo)
+        self.assertEqual(resolver.resolve("MAIN", date(2024, 1, 2)).limit_up_pct, 0.10)
+        self.assertEqual(resolver.resolve("CHINEXT", date(2024, 1, 2)).limit_up_pct, 0.20)
+        self.assertIsNone(resolver.resolve("CHINEXT", date(2020, 8, 23)))
+
+    def test_provider_timeout_retries_then_recovers_from_cache(self) -> None:
+        class FixtureProvider(DataProvider):
+            name = "fixture"
+            def fetch_securities(self): raise NotImplementedError
+            def fetch_daily_bars(self, symbol, start, end): raise NotImplementedError
+            def health_check(self): return {"status": "ok"}
+        now = datetime.now(timezone.utc)
+        cached_result = ProviderResult("fixture", "daily", now, now, "2024-01-01", "v1", [])
+        wrapper = ResilientProvider(FixtureProvider(), Path(self.temp.name) / "cache", retries=1, rate_per_second=0, timeout_seconds=0.01)
+        serialize = lambda result: {"provider": result.provider, "endpoint": result.endpoint, "requested_at": result.requested_at.isoformat(), "fetched_at": result.fetched_at.isoformat(), "data_timestamp": result.data_timestamp, "data_version": result.data_version, "items": []}
+        deserialize = lambda payload: ProviderResult(payload["provider"], payload["endpoint"], datetime.fromisoformat(payload["requested_at"]), datetime.fromisoformat(payload["fetched_at"]), payload["data_timestamp"], payload["data_version"], [])
+        wrapper.cache.put("bars", serialize(cached_result))
+        recovered = wrapper.execute("bars", lambda: time.sleep(0.1), serialize, deserialize)
+        self.assertTrue(recovered.cache_hit)
+        self.assertTrue(recovered.stale)
+        self.assertIn("TimeoutError", recovered.error)
 
 
 class PointInTimeUniverseTests(unittest.TestCase):

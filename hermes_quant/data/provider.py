@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import random
+import queue
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -90,18 +91,36 @@ class JsonCache:
 class ResilientProvider:
     """Adds rate limiting, exponential backoff and cache recovery to a provider call."""
 
-    def __init__(self, provider: DataProvider, cache_dir: Path, retries: int = 3, rate_per_second: float = 1.0) -> None:
+    def __init__(self, provider: DataProvider, cache_dir: Path, retries: int = 3, rate_per_second: float = 1.0, timeout_seconds: float = 20.0) -> None:
         self.provider = provider
         self.cache = JsonCache(cache_dir)
         self.retries = max(1, retries)
         self.limiter = RateLimiter(rate_per_second)
+        self.timeout_seconds = timeout_seconds
+
+    def _with_timeout(self, operation):
+        output: queue.Queue = queue.Queue(maxsize=1)
+        def target() -> None:
+            try:
+                output.put((True, operation()))
+            except BaseException as exc:
+                output.put((False, exc))
+        worker = threading.Thread(target=target, daemon=True, name=f"provider-{self.provider.name}")
+        worker.start()
+        try:
+            ok, value = output.get(timeout=self.timeout_seconds)
+        except queue.Empty as exc:
+            raise TimeoutError(f"provider call exceeded {self.timeout_seconds}s") from exc
+        if ok:
+            return value
+        raise value
 
     def execute(self, cache_key: str, operation, serialize, deserialize) -> ProviderResult:
         last_error: Exception | None = None
         for attempt in range(self.retries):
             self.limiter.wait()
             try:
-                result = operation()
+                result = self._with_timeout(operation)
                 self.cache.put(cache_key, serialize(result))
                 return result
             except Exception as exc:  # provider errors are recorded and retried centrally
@@ -115,4 +134,3 @@ class ResilientProvider:
             return ProviderResult(**{**asdict(result), "cache_hit": True, "stale": True, "error": f"{type(last_error).__name__}: {last_error}"})
         assert last_error is not None
         raise last_error
-

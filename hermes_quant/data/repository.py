@@ -99,3 +99,8 @@ class QuantRepository:
     def log_quality(self, dataset: str, severity: str, check_name: str, message: str, symbol: str | None = None, trade_date: str | None = None) -> None:
         with self.transaction() as connection:
             connection.execute("INSERT INTO data_quality_log(dataset,symbol,trade_date,severity,check_name,message,created_at) VALUES(?,?,?,?,?,?,?)", (dataset, symbol, trade_date, severity, check_name, message, datetime.now().astimezone().isoformat()))
+
+    def latest_daily_bar_date(self, symbol: str, source: str = "akshare") -> str | None:
+        with self.session() as connection:
+            row = connection.execute("SELECT MAX(trade_date) FROM daily_bars WHERE symbol=? AND source=?", (symbol, source)).fetchone()
+        return row[0] if row and row[0] else None

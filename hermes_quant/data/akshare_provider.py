@@ -28,18 +28,26 @@ class AkShareProvider(DataProvider):
 
     def fetch_securities(self) -> ProviderResult[Security]:
         requested = datetime.now().astimezone()
-        frame = self.ak.stock_info_a_code_name()
-        items: list[Security] = []
-        for _, row in frame.iterrows():
-            symbol = str(row.get("code", row.get("证券代码", ""))).zfill(6)
-            if not symbol:
-                continue
-            exchange = "SSE" if symbol.startswith(("5", "6", "9")) else "SZSE"
-            board = "STAR" if symbol.startswith("688") else "CHINEXT" if symbol.startswith("300") else "MAIN"
-            items.append(Security(symbol=symbol, name=str(row.get("name", row.get("证券简称", symbol))), exchange=exchange, board=board, security_type="stock", listing_date=date(1990, 1, 1), source=self.name))
+        frames = [
+            (self.ak.stock_info_sh_name_code(symbol="主板A股"), "SSE", "MAIN", "stock_info_sh_name_code:主板A股"),
+            (self.ak.stock_info_sh_name_code(symbol="科创板"), "SSE", "STAR", "stock_info_sh_name_code:科创板"),
+            (self.ak.stock_info_sz_name_code(symbol="A股列表"), "SZSE", None, "stock_info_sz_name_code:A股列表"),
+        ]
+        by_symbol: dict[str, Security] = {}
+        for frame, exchange, fixed_board, endpoint in frames:
+            for _, row in frame.iterrows():
+                symbol = str(row.get("证券代码", row.get("A股代码", ""))).zfill(6)
+                raw_listing = row.get("上市日期", row.get("A股上市日期"))
+                if not symbol or not raw_listing:
+                    continue
+                listing_date = raw_listing if isinstance(raw_listing, date) else date.fromisoformat(str(raw_listing)[:10])
+                raw_board = str(row.get("板块", ""))
+                board = fixed_board or ("CHINEXT" if "创业" in raw_board or symbol.startswith("300") else "MAIN")
+                by_symbol[symbol] = Security(symbol=symbol, name=str(row.get("证券简称", row.get("A股简称", symbol))), exchange=exchange, board=board, security_type="stock", listing_date=listing_date, valid_from=listing_date, source=f"{self.name}:{endpoint}")
+        items = [by_symbol[key] for key in sorted(by_symbol)]
         fetched = datetime.now().astimezone()
-        version = self._version("stock_info_a_code_name", [(x.symbol, x.name) for x in items])
-        return ProviderResult(self.name, "stock_info_a_code_name", requested, fetched, None, version, items)
+        version = self._version("stock_info_sh_name_code+stock_info_sz_name_code", [(x.symbol, x.name, x.listing_date) for x in items])
+        return ProviderResult(self.name, "stock_info_sh_name_code+stock_info_sz_name_code", requested, fetched, None, version, items)
 
     def fetch_daily_bars(self, symbol: str, start: date, end: date) -> ProviderResult[DailyBar]:
         requested = datetime.now().astimezone()
@@ -60,4 +68,3 @@ class AkShareProvider(DataProvider):
 
     def health_check(self) -> dict[str, object]:
         return {"provider": self.name, "status": "available", "version": getattr(self.ak, "__version__", "unknown"), "checked_at": datetime.now().astimezone().isoformat(), "network_checked": False}
-

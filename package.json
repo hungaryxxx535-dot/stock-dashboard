@@ -10,6 +10,10 @@
     "typecheck": "tsc --noEmit",
     "lint": "next lint",
     "test": "vitest run",
+    "quant:init": "python -m hermes_quant.cli init-db",
+    "quant:test": "python -m unittest discover -s tests_quant -v",
+    "quant:smoke": "python -m hermes_quant.cli smoke",
+    "quant:doctor": "python -m hermes_quant.cli doctor",
     "test:e2e": "playwright test",
     "security:scan": "node tools/security-scan.mjs",
     "smoke": "node tools/smoke-test.mjs"
