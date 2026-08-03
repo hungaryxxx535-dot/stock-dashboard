@@ -17,6 +17,7 @@ tsconfig.tsbuildinfo
 .local-private/
 private-data/
 *.portfolio-backup.json
+public/stock-backup.json
 
 # Keep only anonymous Playwright acceptance screenshots, not traces or run metadata
 test-results/*
