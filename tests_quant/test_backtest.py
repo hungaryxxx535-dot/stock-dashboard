@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 from hermes_quant.backtest.engine import BacktestConfig, BacktestSignal, EventDrivenBacktester
 from hermes_quant.backtest.walk_forward import build_walk_forward_splits
 from hermes_quant.paper.models import FeeSchedule, MarketBar, OrderStatus, Side
+from hermes_quant.risk import RiskLimits
 
 
 BASE = datetime(2024, 1, 1, 7, tzinfo=timezone.utc)
@@ -40,6 +41,12 @@ class BacktestTests(unittest.TestCase):
         result = EventDrivenBacktester(self.config()).run(bars, signals)
         self.assertEqual(result.orders[0].status, OrderStatus.EXPIRED)
         self.assertEqual(result.metrics.unfilled_rate, 1.0)
+
+    def test_risk_limits_reject_concentrated_order_before_matching(self) -> None:
+        config = BacktestConfig(100_000, FeeSchedule(slippage_bps=0, impact_bps_at_full_participation=0), "fixture-v1", 7, risk_limits=RiskLimits(0.8, 0.2, 0.35, 0.5))
+        result = EventDrivenBacktester(config).run([market_bar(1, 10)], [BacktestSignal("A", "v1", "600001", Side.BUY, BASE, 3000, 10, "BANK", "normal")])
+        self.assertEqual(result.orders[0].status, OrderStatus.REJECTED)
+        self.assertEqual(result.orders[0].rejection_reason, "SINGLE_POSITION_LIMIT")
 
     def test_walk_forward_reserves_identical_untouched_holdout(self) -> None:
         dates = [date(2024, 1, 1) + timedelta(days=index) for index in range(140)]

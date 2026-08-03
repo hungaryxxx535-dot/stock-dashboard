@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "services": "node tools/start-services.mjs",
+    "services:stop": "node tools/stop-services.mjs",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",

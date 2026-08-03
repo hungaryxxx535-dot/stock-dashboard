@@ -2,6 +2,26 @@
 
 面向个人投资者的本地优先、移动优先作战系统。它把持仓、市场、研究、计划、风险和复盘放进一条可审计的工作流，但不连接券商下单、不承诺收益，也不把缺失数据伪装为实时数据。
 
+## Hermes 量化核心
+
+仓库现包含隔离的 `hermes_quant/` Python 核心，用于版本化历史数据、Point-in-Time 股票池、五个独立基准策略、事件顺序回测、Paper Broker、五账户对照、Champion–Challenger治理、默认关闭的日程和可选飞书消息。该核心没有真实券商连接能力。
+
+```bash
+python -m hermes_quant.cli init-db
+python -m unittest discover -s tests_quant -v
+python -m hermes_quant.cli smoke
+python -m hermes_quant.cli doctor
+```
+
+真实数据只读同步示例：
+
+```bash
+python -m hermes_quant.cli sync-securities
+python -m hermes_quant.cli sync-bars --symbol 600036 --start 2024-01-02 --end 2024-01-10 --incremental
+```
+
+当前 AkShare 证券主表是“当前上市快照”，不含完整退市、历史ST、停牌、公告与行业成员历史。在这些数据补齐前，禁止把全市场历史回测称为可信结果。`quant:smoke` 只使用明确标记的测试夹具验证机制，不输出真实策略业绩。
+
 ## 已实现
 
 - 统一 App Shell：桌面可折叠侧栏、移动端五入口和 `Ctrl/Cmd + K` 命令面板。
@@ -26,6 +46,12 @@ npm run dev
 
 ```bash
 npm run services
+```
+
+停止由上述命令记录的本地服务：
+
+```bash
+npm run services:stop
 ```
 
 可选云同步（Supabase）：设置 `NEXT_PUBLIC_SUPABASE_URL` 与 `NEXT_PUBLIC_SUPABASE_ANON_KEY` 后自动启用；建表 SQL 见 `src/lib/storage/supabase-adapter.ts` 顶部注释。未配置时保持本地 IndexedDB 模式。

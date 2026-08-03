@@ -38,11 +38,15 @@ class PaperBroker:
     def available_cash(self) -> float:
         return self.cash - self.frozen_cash
 
-    def submit(self, order: Order) -> Order:
+    def submit(self, order: Order, external_rejection: str | None = None) -> Order:
         if order.order_id in self.orders:
             return self.orders[order.order_id]
         order.status = OrderStatus.SUBMITTED
         self.orders[order.order_id] = order
+        if external_rejection:
+            order.status = OrderStatus.REJECTED
+            order.rejection_reason = external_rejection
+            return order
         reason = self._validate(order)
         if reason:
             order.status = OrderStatus.REJECTED
@@ -190,4 +194,3 @@ class PaperBroker:
     def snapshot(self) -> AccountSnapshot:
         market_value = sum(position.quantity * self.last_prices.get(symbol, position.average_cost) for symbol, position in self.positions.items())
         return AccountSnapshot(self.cash, self.frozen_cash, market_value, self.cash + market_value)
-

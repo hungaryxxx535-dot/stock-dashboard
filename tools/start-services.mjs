@@ -26,6 +26,7 @@ function launch(command, args, cwd, label) {
     stdio: ["ignore", out, err],
   });
   child.unref();
+  fs.writeFileSync(path.join(privateDir, `${label}.pid`), String(child.pid), "utf8");
   return child.pid;
 }
 

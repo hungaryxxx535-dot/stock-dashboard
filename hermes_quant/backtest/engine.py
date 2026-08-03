@@ -5,6 +5,7 @@ from datetime import date, datetime
 
 from hermes_quant.paper.broker import PaperBroker
 from hermes_quant.paper.models import FeeSchedule, MarketBar, Order, OrderStatus, OrderType, Side
+from hermes_quant.risk import RiskContext, RiskLimits, RiskManager
 
 from .metrics import BacktestMetrics, ClosedTrade, calculate_metrics
 
@@ -18,6 +19,8 @@ class BacktestSignal:
     signal_time: datetime
     quantity: int
     limit_price: float
+    industry: str = "UNKNOWN"
+    market_regime: str = "normal"
 
 
 @dataclass(frozen=True)
@@ -27,6 +30,7 @@ class BacktestConfig:
     data_version: str = "fixture"
     random_seed: int = 20260803
     precision_grade: str = "DAILY_APPROXIMATION"
+    risk_limits: RiskLimits = RiskLimits()
 
 
 @dataclass(frozen=True)
@@ -45,6 +49,8 @@ class EventDrivenBacktester:
 
     def run(self, bars: list[MarketBar], signals: list[BacktestSignal]) -> BacktestResult:
         broker = PaperBroker(self.config.initial_cash, self.config.fees)
+        risk_manager = RiskManager(self.config.risk_limits)
+        symbol_industries = {signal.symbol: signal.industry for signal in signals}
         ordered_bars = sorted(bars, key=lambda item: (item.timestamp, item.symbol))
         pending_signals = sorted(signals, key=lambda item: (item.signal_time, item.symbol, item.strategy_id))
         signal_index = 0
@@ -58,7 +64,7 @@ class EventDrivenBacktester:
             while signal_index < len(pending_signals) and pending_signals[signal_index].signal_time < bar.timestamp:
                 signal = pending_signals[signal_index]
                 candidate = Order(signal.strategy_id, signal.model_version, signal.symbol, signal.side, OrderType.LIMIT, signal.signal_time, signal.signal_time, signal.quantity, signal.limit_price)
-                broker.submit(candidate)
+                broker.submit(candidate, self._risk_rejection(broker, signal, symbol_industries, risk_manager))
                 if candidate.status in {OrderStatus.ACCEPTED, OrderStatus.PARTIALLY_FILLED}:
                     active.append(candidate.order_id)
                 signal_index += 1
@@ -73,7 +79,7 @@ class EventDrivenBacktester:
         while signal_index < len(pending_signals):
             signal = pending_signals[signal_index]
             candidate = Order(signal.strategy_id, signal.model_version, signal.symbol, signal.side, OrderType.LIMIT, signal.signal_time, signal.signal_time, signal.quantity, signal.limit_price)
-            broker.submit(candidate)
+            broker.submit(candidate, self._risk_rejection(broker, signal, symbol_industries, risk_manager))
             signal_index += 1
         for order_id in list(active):
             broker.expire(order_id)
@@ -82,6 +88,19 @@ class EventDrivenBacktester:
         metrics = calculate_metrics(self.config.initial_cash, equity_by_date, trades, len(broker.orders), unfilled, sum(fill.slippage_cost for fill in broker.fills), sum(fill.commission + fill.tax for fill in broker.fills))
         warnings = ("日线撮合仅代表下一可交易日开盘附近的保守近似，不具备分钟级精度。",) if self.config.precision_grade == "DAILY_APPROXIMATION" else ()
         return BacktestResult(self.config, metrics, tuple(broker.orders.values()), tuple(trades), equity_by_date, warnings)
+
+    @staticmethod
+    def _risk_rejection(broker: PaperBroker, signal: BacktestSignal, symbol_industries: dict[str, str], risk_manager: RiskManager) -> str | None:
+        if signal.side != Side.BUY:
+            return None
+        snapshot = broker.snapshot()
+        symbol_value = broker.positions.get(signal.symbol).quantity * broker.last_prices.get(signal.symbol, signal.limit_price) if signal.symbol in broker.positions else 0.0
+        industry_value = 0.0
+        for symbol, position in broker.positions.items():
+            if symbol_industries.get(symbol, "UNKNOWN") == signal.industry:
+                industry_value += position.quantity * broker.last_prices.get(symbol, position.average_cost)
+        context = RiskContext(snapshot.total_equity, snapshot.market_value, symbol_value, industry_value, signal.limit_price * signal.quantity, signal.market_regime)
+        return risk_manager.validate_buy(context)
 
     @staticmethod
     def _closed_trades(broker: PaperBroker, bars_by_symbol: dict[str, list[MarketBar]]) -> list[ClosedTrade]:
@@ -110,4 +129,3 @@ class EventDrivenBacktester:
                 if int(lot["quantity"]) == 0:
                     queue.pop(0)
         return trades
-
