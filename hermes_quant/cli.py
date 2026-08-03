@@ -10,7 +10,7 @@ from pathlib import Path
 
 from hermes_quant.backtest.engine import BacktestConfig, BacktestSignal, EventDrivenBacktester
 from hermes_quant.config import Settings
-from hermes_quant.data.akshare_provider import AkShareProvider
+from hermes_quant.data.akshare_provider import AkShareProvider, configure_http_environment
 from hermes_quant.data.models import DailyBar, Security
 from hermes_quant.data.provider import ProviderResult, ResilientProvider
 from hermes_quant.data.repository import QuantRepository
@@ -83,6 +83,7 @@ def _deserialize_securities(payload: dict[str, object]) -> ProviderResult[Securi
 def sync_securities(settings: Settings) -> int:
     repository = QuantRepository(settings.database_path)
     repository.migrate(MIGRATIONS)
+    proxy_mode = configure_http_environment(settings.http_proxy)
     provider = AkShareProvider()
     resilient = ResilientProvider(provider, settings.cache_dir, settings.max_retries, settings.request_rate_per_second, settings.request_timeout_seconds)
     run_id = repository.start_sync_run(provider.name, "security_master_current_snapshot", {})
@@ -90,7 +91,7 @@ def sync_securities(settings: Settings) -> int:
         result = resilient.execute("akshare:securities:current", provider.fetch_securities, _serialize_securities, _deserialize_securities)
         rows = repository.upsert_securities(result.items)
         repository.finish_sync_run(run_id, "succeeded_with_scope_warning", rows, result.data_version)
-        emit({"status": "ok", "run_id": run_id, "rows": rows, "data_version": result.data_version, "fetched_at": result.fetched_at, "cache_hit": result.cache_hit, "scope": "current listed A-shares with actual listing dates", "warning": "Delisted securities and historical status changes are not supplied by this snapshot; it is insufficient for historical PIT backtests."})
+        emit({"status": "ok", "run_id": run_id, "rows": rows, "data_version": result.data_version, "fetched_at": result.fetched_at, "cache_hit": result.cache_hit, "proxy_mode": proxy_mode, "scope": "current listed A-shares with actual listing dates", "warning": "Delisted securities and historical status changes are not supplied by this snapshot; it is insufficient for historical PIT backtests."})
         return 0
     except Exception as exc:
         repository.finish_sync_run(run_id, "failed", 0, error_type=type(exc).__name__, error_message=str(exc)[:500])
@@ -108,6 +109,7 @@ def sync_bars(settings: Settings, symbol: str, start: date, end: date, increment
     if start > end:
         emit({"status": "ok", "symbol": symbol, "rows": 0, "reason": "already_up_to_date"})
         return 0
+    proxy_mode = configure_http_environment(settings.http_proxy)
     provider = AkShareProvider()
     resilient = ResilientProvider(provider, settings.cache_dir, settings.max_retries, settings.request_rate_per_second, settings.request_timeout_seconds)
     run_id = repository.start_sync_run(provider.name, "stock_zh_a_hist", {"symbol": symbol, "start": start.isoformat(), "end": end.isoformat()})
@@ -124,7 +126,7 @@ def sync_bars(settings: Settings, symbol: str, start: date, end: date, increment
             return 2
         rows = repository.upsert_daily_bars(result.items)
         repository.finish_sync_run(run_id, "succeeded", rows, result.data_version)
-        emit({"status": "ok", "run_id": run_id, "provider": result.provider, "endpoint": result.endpoint, "symbol": symbol, "start": start, "end": end, "data_timestamp": result.data_timestamp, "fetched_at": result.fetched_at, "data_version": result.data_version, "rows": rows, "cache_hit": result.cache_hit, "stale": result.stale, "quality_errors": 0})
+        emit({"status": "ok", "run_id": run_id, "provider": result.provider, "endpoint": result.endpoint, "symbol": symbol, "start": start, "end": end, "data_timestamp": result.data_timestamp, "fetched_at": result.fetched_at, "data_version": result.data_version, "rows": rows, "cache_hit": result.cache_hit, "stale": result.stale, "proxy_mode": proxy_mode, "quality_errors": 0})
         return 0
     except Exception as exc:
         repository.finish_sync_run(run_id, "failed", 0, error_type=type(exc).__name__, error_message=str(exc)[:500])
@@ -135,8 +137,9 @@ def sync_bars(settings: Settings, symbol: str, start: date, end: date, increment
 def doctor(settings: Settings) -> int:
     repository = QuantRepository(settings.database_path)
     applied = repository.migrate(MIGRATIONS)
+    proxy_mode = configure_http_environment(settings.http_proxy)
     provider = AkShareProvider()
-    emit({"status": "ok", "python": sys.version.split()[0], "provider": provider.health_check(), "database": str(settings.database_path), "new_migrations": applied, "execution_mode": settings.execution_mode, "scheduler_jobs": [asdict(spec) for spec in default_job_specs(settings)], "feishu_configured": bool(settings.feishu_webhook_url), "secrets_printed": False})
+    emit({"status": "ok", "python": sys.version.split()[0], "provider": provider.health_check(), "proxy_mode": proxy_mode, "database": str(settings.database_path), "new_migrations": applied, "execution_mode": settings.execution_mode, "scheduler_jobs": [asdict(spec) for spec in default_job_specs(settings)], "feishu_configured": bool(settings.feishu_webhook_url), "secrets_printed": False})
     return 0
 
 

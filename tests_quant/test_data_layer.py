@@ -5,6 +5,9 @@ import time
 import unittest
 from datetime import date, datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
+
+import pandas as pd
 
 from hermes_quant.data.models import Announcement, DailyBar, IntervalStatus, Security
 from hermes_quant.data.repository import QuantRepository
@@ -12,9 +15,41 @@ from hermes_quant.data.universe import PointInTimeUniverse
 from hermes_quant.data.validation import validate_daily_bars
 from hermes_quant.data.provider import DataProvider, ProviderResult, ResilientProvider
 from hermes_quant.data.market_rules import PriceLimitRuleResolver
+from hermes_quant.data.akshare_provider import AkShareProvider, configure_http_environment
 
 
 class DataLayerTests(unittest.TestCase):
+    def test_akshare_daily_falls_back_from_eastmoney_to_sina(self) -> None:
+        class FakeAkShare:
+            __version__ = "fixture"
+
+            @staticmethod
+            def stock_zh_a_hist(**_kwargs):
+                raise ConnectionError("eastmoney unavailable")
+
+            @staticmethod
+            def stock_zh_a_daily(**_kwargs):
+                return pd.DataFrame(
+                    [{"open": 10, "high": 11, "low": 9, "close": 10.5, "volume": 1000, "amount": 10500}],
+                    index=[date(2024, 1, 2)],
+                )
+
+        result = AkShareProvider(FakeAkShare()).fetch_daily_bars("600001", date(2024, 1, 2), date(2024, 1, 2))
+        self.assertEqual(result.endpoint, "stock_zh_a_daily")
+        self.assertEqual((len(result.items), result.items[0].close), (1, 10.5))
+
+    def test_proxy_configuration_prefers_explicit_and_defaults_to_direct(self) -> None:
+        names = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(configure_http_environment(None), "direct")
+            self.assertEqual(__import__("os").environ["NO_PROXY"], "*")
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(configure_http_environment("http://127.0.0.1:8080"), "explicit")
+            self.assertEqual(__import__("os").environ["HTTPS_PROXY"], "http://127.0.0.1:8080")
+        with patch.dict("os.environ", {name: "" for name in names}, clear=True):
+            with self.assertRaises(ValueError):
+                configure_http_environment("not-a-proxy")
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.repo = QuantRepository(Path(self.temp.name) / "test.db")

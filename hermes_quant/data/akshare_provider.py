@@ -2,11 +2,37 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import date, datetime
 from typing import Any
+from urllib.parse import urlparse
 
 from .models import DailyBar, Security
 from .provider import DataProvider, ProviderResult
+
+
+def configure_http_environment(explicit_proxy: str | None) -> str:
+    """Make AkShare proxy choice explicit without exposing credentials."""
+    value = (explicit_proxy or "").strip()
+    if value.lower() == "direct":
+        for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
+            os.environ.pop(name, None)
+        os.environ["NO_PROXY"] = "*"
+        return "direct"
+    if value:
+        parsed = urlparse(value)
+        if parsed.scheme not in {"http", "https", "socks5", "socks5h"} or not parsed.hostname:
+            raise ValueError("HERMES_HTTP_PROXY must be a valid proxy URL or 'direct'")
+        os.environ["HTTP_PROXY"] = value
+        os.environ["HTTPS_PROXY"] = value
+        os.environ.pop("NO_PROXY", None)
+        return "explicit"
+    if any(os.getenv(name) for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")):
+        return "environment"
+    # requests otherwise inherits WinINET on Windows, including stale local
+    # proxy ports. An unconfigured Hermes process should make a direct request.
+    os.environ["NO_PROXY"] = "*"
+    return "direct"
 
 
 def _float(value: Any) -> float:
@@ -52,13 +78,26 @@ class AkShareProvider(DataProvider):
     def fetch_daily_bars(self, symbol: str, start: date, end: date) -> ProviderResult[DailyBar]:
         requested = datetime.now().astimezone()
         endpoint = "stock_zh_a_hist"
-        frame = self.ak.stock_zh_a_hist(symbol=symbol, period="daily", start_date=start.strftime("%Y%m%d"), end_date=end.strftime("%Y%m%d"), adjust="")
+        try:
+            frame = self.ak.stock_zh_a_hist(symbol=symbol, period="daily", start_date=start.strftime("%Y%m%d"), end_date=end.strftime("%Y%m%d"), adjust="")
+            if frame.empty:
+                raise ValueError("eastmoney returned no daily bars")
+        except Exception:
+            endpoint = "stock_zh_a_daily"
+            exchange_symbol = ("sh" if symbol.startswith("6") else "sz") + symbol
+            frame = self.ak.stock_zh_a_daily(symbol=exchange_symbol, start_date=start.strftime("%Y%m%d"), end_date=end.strftime("%Y%m%d"), adjust="")
         items: list[DailyBar] = []
         previous_close: float | None = None
-        for _, row in frame.iterrows():
-            trade_date = date.fromisoformat(str(row["日期"])[:10])
-            close = _float(row["收盘"])
-            items.append(DailyBar(symbol=symbol, trade_date=trade_date, open=_float(row["开盘"]), high=_float(row["最高"]), low=_float(row["最低"]), close=close, volume=_float(row["成交量"]), amount=_float(row["成交额"]), prev_close=previous_close, source=self.name, fetched_at=datetime.now().astimezone()))
+        for index, row in frame.iterrows():
+            raw_date = row["日期"] if "日期" in row else row["date"] if "date" in row else index
+            trade_date = date.fromisoformat(str(raw_date)[:10])
+            close = _float(row["收盘"] if "收盘" in row else row["close"])
+            open_price = row["开盘"] if "开盘" in row else row["open"]
+            high = row["最高"] if "最高" in row else row["high"]
+            low = row["最低"] if "最低" in row else row["low"]
+            volume = row["成交量"] if "成交量" in row else row["volume"]
+            amount = row["成交额"] if "成交额" in row else row.get("amount", 0)
+            items.append(DailyBar(symbol=symbol, trade_date=trade_date, open=_float(open_price), high=_float(high), low=_float(low), close=close, volume=_float(volume), amount=_float(amount), prev_close=previous_close, source=f"{self.name}:{endpoint}", fetched_at=datetime.now().astimezone()))
             previous_close = close
         fetched = datetime.now().astimezone()
         version = self._version(endpoint, [item.to_record() for item in items])
