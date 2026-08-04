@@ -21,13 +21,22 @@ class AccountSnapshot:
 class PaperBroker:
     """A-share paper broker. It has no network or real-broker integration."""
 
-    def __init__(self, initial_cash: float, fees: FeeSchedule | None = None) -> None:
+    def __init__(
+        self,
+        initial_cash: float,
+        fees: FeeSchedule | None = None,
+        *,
+        require_fresh_data: bool = False,
+        max_data_latency_seconds: float = 300.0,
+    ) -> None:
         if initial_cash <= 0:
             raise ValueError("initial_cash must be positive")
         self.initial_cash = float(initial_cash)
         self.cash = float(initial_cash)
         self.frozen_cash = 0.0
         self.fees = fees or FeeSchedule()
+        self.require_fresh_data = require_fresh_data
+        self.max_data_latency_seconds = max(0.0, float(max_data_latency_seconds))
         self.orders: dict[str, Order] = {}
         self.fills: list[Fill] = []
         self.positions: dict[str, Position] = {}
@@ -86,22 +95,44 @@ class PaperBroker:
         order = self.orders[order_id]
         if order.status in TERMINAL:
             return order
-        self.last_prices[bar.symbol] = bar.close
+        order.last_block_reason = None
         order.data_timestamp = bar.timestamp
         if bar.symbol != order.symbol or bar.timestamp <= order.signal_time or bar.timestamp < order.submit_time:
+            order.last_block_reason = "BAR_NOT_ELIGIBLE"
             return order
+        if self.require_fresh_data:
+            if bar.data_received_at is None:
+                order.last_block_reason = "DATA_RECEIVED_AT_MISSING"
+                return order
+            try:
+                latency = (bar.data_received_at - bar.timestamp).total_seconds()
+            except TypeError:
+                order.last_block_reason = "DATA_TIMESTAMP_TIMEZONE_MISMATCH"
+                return order
+            if latency < 0:
+                order.last_block_reason = "DATA_RECEIVED_BEFORE_BAR"
+                return order
+            if latency > self.max_data_latency_seconds:
+                order.last_block_reason = "STALE_MARKET_DATA"
+                return order
+        self.last_prices[bar.symbol] = bar.close
         if bar.suspended or bar.volume <= 0:
+            order.last_block_reason = "SUSPENDED_OR_NO_VOLUME"
             return order
         if order.side == Side.BUY and bar.one_price and bar.limit_up is not None and bar.close >= bar.limit_up:
+            order.last_block_reason = "ONE_PRICE_LIMIT_UP"
             return order
         if order.side == Side.SELL and bar.one_price and bar.limit_down is not None and bar.close <= bar.limit_down:
+            order.last_block_reason = "ONE_PRICE_LIMIT_DOWN"
             return order
         raw_price = self._executable_price(order, bar)
         if raw_price is None:
+            order.last_block_reason = "LIMIT_NOT_MARKETABLE"
             return order
         max_quantity = floor(bar.volume * self.fees.max_volume_participation / self.fees.lot_size) * self.fees.lot_size
         fill_quantity = min(order.remaining_quantity, max_quantity)
         if fill_quantity <= 0:
+            order.last_block_reason = "VOLUME_PARTICIPATION_ZERO"
             return order
         participation = fill_quantity / bar.volume
         direction = 1.0 if order.side == Side.BUY else -1.0

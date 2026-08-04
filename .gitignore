@@ -3,7 +3,9 @@ node_modules
 out
 __pycache__/
 *.pyc
-.env*.local
+.env
+.env.*
+!.env.example
 .vercel
 .DS_Store
 npm-debug.log*
@@ -16,6 +18,20 @@ tsconfig.tsbuildinfo
 # Local-only portfolio migrations and private user backups
 .local-private/
 private-data/
+logs/
+cache/
+data/raw/
+data/private/
+*.db
+*.sqlite
+*.sqlite3
+*.pem
+*.key
+*.pfx
+/cookies*
+/token*
+/secrets*
+/credentials*
 *.portfolio-backup.json
 public/stock-backup.json
 

@@ -65,6 +65,77 @@ class PaperBrokerTests(unittest.TestCase):
         locked = bar(open=10, high=10, low=10, close=10, limit_up=10)
         self.assertEqual(self.broker.process_bar(limit_order.order_id, locked).status, OrderStatus.ACCEPTED)
 
+    def test_one_price_limit_down_blocks_sell(self) -> None:
+        buy = self.broker.submit(order())
+        self.broker.process_bar(buy.order_id, bar())
+        self.broker.settle(date(2024, 1, 4))
+        sell = self.broker.submit(
+            order(side=Side.SELL, signal_time=NOW + timedelta(days=2), submit_time=NOW + timedelta(days=2))
+        )
+        locked = bar(
+            timestamp=NOW + timedelta(days=3),
+            trade_date=date(2024, 1, 5),
+            open=9,
+            high=9,
+            low=9,
+            close=9,
+            limit_down=9,
+        )
+        self.assertEqual(self.broker.process_bar(sell.order_id, locked).status, OrderStatus.ACCEPTED)
+        self.assertEqual(sell.last_block_reason, "ONE_PRICE_LIMIT_DOWN")
+
+    def test_duplicate_submit_and_expiry_are_idempotent_and_release_cash(self) -> None:
+        candidate = order()
+        first = self.broker.submit(candidate)
+        frozen = self.broker.frozen_cash
+        second = self.broker.submit(candidate)
+        self.assertIs(first, second)
+        self.assertEqual(self.broker.frozen_cash, frozen)
+        self.assertEqual(self.broker.expire(candidate.order_id).status, OrderStatus.EXPIRED)
+        self.assertEqual(self.broker.frozen_cash, 0)
+        self.assertEqual(self.broker.expire(candidate.order_id).status, OrderStatus.EXPIRED)
+
+    def test_slippage_commission_and_stamp_tax_are_applied(self) -> None:
+        fees = FeeSchedule(
+            commission_rate=0.0003,
+            minimum_commission=5,
+            stamp_tax_rate_on_sell=0.0005,
+            slippage_bps=10,
+            impact_bps_at_full_participation=0,
+            max_volume_participation=0.1,
+        )
+        broker = PaperBroker(100_000, fees)
+        buy = broker.submit(order(quantity=100, limit=11))
+        broker.process_bar(buy.order_id, bar(open=10, high=10.2, low=9.8, close=10))
+        self.assertAlmostEqual(buy.average_fill_price, 10.01, places=8)
+        self.assertAlmostEqual(buy.slippage, 1.0, places=8)
+        self.assertEqual(buy.commission, 5)
+        broker.settle(date(2024, 1, 4))
+        sell = broker.submit(
+            order(
+                side=Side.SELL,
+                quantity=100,
+                limit=9,
+                signal_time=NOW + timedelta(days=2),
+                submit_time=NOW + timedelta(days=2),
+            )
+        )
+        broker.process_bar(sell.order_id, bar(timestamp=NOW + timedelta(days=3), trade_date=date(2024, 1, 5)))
+        self.assertGreater(sell.tax, 0)
+        self.assertEqual(sell.commission, 5)
+
+    def test_forward_mode_rejects_missing_and_stale_data_timestamp(self) -> None:
+        broker = PaperBroker(100_000, self.fees, require_fresh_data=True, max_data_latency_seconds=30)
+        candidate = broker.submit(order())
+        missing = bar(data_received_at=None)
+        self.assertEqual(broker.process_bar(candidate.order_id, missing).status, OrderStatus.ACCEPTED)
+        self.assertEqual(candidate.last_block_reason, "DATA_RECEIVED_AT_MISSING")
+        stale = bar(data_received_at=missing.timestamp + timedelta(seconds=31))
+        broker.process_bar(candidate.order_id, stale)
+        self.assertEqual(candidate.last_block_reason, "STALE_MARKET_DATA")
+        fresh = bar(data_received_at=missing.timestamp + timedelta(seconds=2))
+        self.assertEqual(broker.process_bar(candidate.order_id, fresh).status, OrderStatus.FILLED)
+
     def test_insufficient_cash_minimum_commission_and_cancel_release(self) -> None:
         small = PaperBroker(1_000, self.fees)
         rejected = small.submit(order(quantity=1000))

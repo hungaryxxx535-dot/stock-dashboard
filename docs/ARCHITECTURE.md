@@ -14,5 +14,8 @@
 - `hermes_quant/governance.py`：20/60交易日和人工批准门槛。
 - `hermes_quant/scheduler`：交易日、重试、补跑和幂等run_id。
 - `hermes_quant/messaging`：飞书模板、拆分、重试、去重和免责声明。
+- `hermes_quant/api`：仅监听loopback的Bearer鉴权HTTP边界，提供严格响应信封、速率限制和SQLite幂等键。Hermes只能经该边界调用，不能直接读取数据库。
 
 SQLite默认存于 `.local-private/hermes_quant.db`，缓存存于 `.local-private/cache`；两者均被Git忽略。迁移按文件名顺序执行并记录于 `schema_migrations`。
+
+调用流为：`Hermes skill/job → QuantClient → http://127.0.0.1:8765 → QuantApiService → repository/Paper account`。接口固定返回`environment=paper`，仓库没有真实券商SDK、账户登录或真实订单提交入口。

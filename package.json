@@ -15,6 +15,11 @@
     "quant:test": "python -m unittest discover -s tests_quant -v",
     "quant:smoke": "python -m hermes_quant.cli smoke",
     "quant:doctor": "python -m hermes_quant.cli doctor",
+    "quant:api": "python -m hermes_quant.cli serve-api",
+    "quant:api:start": "node tools/quant-api-service.mjs start",
+    "quant:api:stop": "node tools/quant-api-service.mjs stop",
+    "quant:api:status": "node tools/quant-api-service.mjs status",
+    "quant:backtest": "python -m hermes_quant.cli backtest-baseline",
     "test:e2e": "playwright test",
     "security:scan": "node tools/security-scan.mjs",
     "smoke": "node tools/smoke-test.mjs"

@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Iterator
 
-from .models import Announcement, DailyBar, IntervalStatus, Security
+from .models import Announcement, DailyBar, IndustryMembership, IntervalStatus, MinuteBar, Security
 
 
 class QuantRepository:
@@ -75,6 +75,50 @@ class QuantRepository:
             """, records)
         return len(records)
 
+    def upsert_minute_bars(self, bars: Iterable[MinuteBar]) -> int:
+        records = [item.to_record() for item in bars]
+        with self.transaction() as connection:
+            connection.executemany("""
+                INSERT INTO minute_bars(symbol,bar_time,open,high,low,close,volume,amount,source,fetched_at,data_version)
+                VALUES(:symbol,:bar_time,:open,:high,:low,:close,:volume,:amount,:source,:fetched_at,:data_version)
+                ON CONFLICT(symbol,bar_time,source) DO UPDATE SET open=excluded.open,high=excluded.high,low=excluded.low,
+                    close=excluded.close,volume=excluded.volume,amount=excluded.amount,fetched_at=excluded.fetched_at,
+                    data_version=excluded.data_version
+            """, records)
+        return len(records)
+
+    def upsert_industry_memberships(self, memberships: Iterable[IndustryMembership]) -> int:
+        records = [item.to_record() for item in memberships]
+        with self.transaction() as connection:
+            connection.executemany("""
+                INSERT INTO industry_membership_history(symbol,industry_code,industry_name,classification,effective_from,effective_to,announced_at,source)
+                VALUES(:symbol,:industry_code,:industry_name,:classification,:effective_from,:effective_to,:announced_at,:source)
+                ON CONFLICT DO UPDATE SET industry_name=excluded.industry_name,effective_to=excluded.effective_to,
+                    announced_at=excluded.announced_at,source=excluded.source
+            """, records)
+        return len(records)
+
+    def upsert_announcements(self, announcements: Iterable[Announcement]) -> int:
+        records = [
+            {
+                "announcement_id": item.announcement_id,
+                "symbol": item.symbol,
+                "title": item.title,
+                "published_at": item.published_at.isoformat(),
+                "url": item.url,
+                "source": item.source,
+            }
+            for item in announcements
+        ]
+        with self.transaction() as connection:
+            connection.executemany("""
+                INSERT INTO announcements(announcement_id,symbol,title,published_at,url,source)
+                VALUES(:announcement_id,:symbol,:title,:published_at,:url,:source)
+                ON CONFLICT(announcement_id) DO UPDATE SET symbol=excluded.symbol,title=excluded.title,
+                    published_at=excluded.published_at,url=excluded.url,source=excluded.source
+            """, records)
+        return len(records)
+
     def add_interval_status(self, table: str, status: IntervalStatus) -> None:
         allowed = {"risk_warning_history", "suspension_history", "listing_history", "delisting_history"}
         if table not in allowed:
@@ -83,8 +127,7 @@ class QuantRepository:
             connection.execute(f"INSERT INTO {table}(symbol,effective_from,effective_to,status,announced_at,source) VALUES(?,?,?,?,?,?)", (status.symbol, status.effective_from.isoformat(), status.effective_to.isoformat() if status.effective_to else None, status.status, status.announced_at.isoformat() if status.announced_at else None, status.source))
 
     def add_announcement(self, item: Announcement) -> None:
-        with self.transaction() as connection:
-            connection.execute("INSERT INTO announcements(announcement_id,symbol,title,published_at,url,source) VALUES(?,?,?,?,?,?)", (item.announcement_id, item.symbol, item.title, item.published_at.isoformat(), item.url, item.source))
+        self.upsert_announcements([item])
 
     def start_sync_run(self, provider: str, endpoint: str, requested_range: dict[str, str]) -> str:
         run_id = str(uuid.uuid4())

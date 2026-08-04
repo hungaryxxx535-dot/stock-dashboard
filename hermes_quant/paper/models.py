@@ -58,6 +58,7 @@ class Order:
     tax: float = 0.0
     slippage: float = 0.0
     rejection_reason: str | None = None
+    last_block_reason: str | None = None
     data_timestamp: datetime | None = None
     frozen_cash: float = 0.0
 
@@ -107,4 +108,3 @@ class Fill:
     slippage_cost: float
     impact_cost: float
     data_timestamp: datetime
-

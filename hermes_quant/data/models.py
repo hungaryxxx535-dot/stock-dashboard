@@ -51,6 +51,46 @@ class DailyBar:
 
 
 @dataclass(frozen=True)
+class MinuteBar:
+    symbol: str
+    bar_time: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+    amount: float
+    source: str
+    fetched_at: datetime
+    data_version: str = "unversioned"
+
+    def to_record(self) -> dict[str, Any]:
+        record = asdict(self)
+        record["bar_time"] = self.bar_time.isoformat()
+        record["fetched_at"] = self.fetched_at.isoformat()
+        return record
+
+
+@dataclass(frozen=True)
+class IndustryMembership:
+    symbol: str
+    industry_code: str
+    industry_name: str
+    classification: str
+    effective_from: date
+    effective_to: date | None
+    announced_at: datetime
+    source: str
+
+    def to_record(self) -> dict[str, Any]:
+        record = asdict(self)
+        record["effective_from"] = self.effective_from.isoformat()
+        record["effective_to"] = self.effective_to.isoformat() if self.effective_to else None
+        record["announced_at"] = self.announced_at.isoformat()
+        return record
+
+
+@dataclass(frozen=True)
 class IntervalStatus:
     symbol: str
     effective_from: datetime
@@ -68,4 +108,3 @@ class Announcement:
     published_at: datetime
     source: str
     url: str | None = None
-

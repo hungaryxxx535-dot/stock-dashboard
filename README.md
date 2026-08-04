@@ -11,6 +11,9 @@ python -m hermes_quant.cli init-db
 python -m unittest discover -s tests_quant -v
 python -m hermes_quant.cli smoke
 python -m hermes_quant.cli doctor
+npm run quant:api:start
+npm run quant:api:status
+npm run quant:backtest
 ```
 
 真实数据只读同步示例：
@@ -18,6 +21,9 @@ python -m hermes_quant.cli doctor
 ```bash
 python -m hermes_quant.cli sync-securities
 python -m hermes_quant.cli sync-bars --symbol 600036 --start 2024-01-02 --end 2024-01-10 --incremental
+python -m hermes_quant.cli sync-minutes --symbol 600036 --start 2026-08-03T09:30:00 --end 2026-08-03T15:00:00 --period 5
+python -m hermes_quant.cli sync-industry --symbol 600036 --start 1990-01-01 --end 2026-08-03
+python -m hermes_quant.cli sync-announcements --symbol 600036 --start 2026-07-01 --end 2026-08-03
 ```
 
 当前 AkShare 证券主表是“当前上市快照”，不含完整退市、历史ST、停牌、公告与行业成员历史。在这些数据补齐前，禁止把全市场历史回测称为可信结果。`quant:smoke` 只使用明确标记的测试夹具验证机制，不输出真实策略业绩。

@@ -65,7 +65,8 @@ def _annualized(daily_returns: list[float]) -> float | None:
 
 
 def calculate_metrics(initial_cash: float, equity_by_date: dict[date, float], trades: list[ClosedTrade], submitted_orders: int, unfilled_orders: int, slippage_cost: float, fee_cost: float) -> BacktestMetrics:
-    ordered_equity = [equity_by_date[key] for key in sorted(equity_by_date)] or [initial_cash]
+    observed_equity = [equity_by_date[key] for key in sorted(equity_by_date)]
+    ordered_equity = [initial_cash, *observed_equity] if observed_equity else [initial_cash]
     daily_returns = [ordered_equity[index] / ordered_equity[index - 1] - 1 for index in range(1, len(ordered_equity)) if ordered_equity[index - 1]]
     wins = [trade.net_pnl for trade in trades if trade.net_pnl > 0]
     losses = [trade.net_pnl for trade in trades if trade.net_pnl < 0]
@@ -103,4 +104,3 @@ def calculate_metrics(initial_cash: float, equity_by_date: dict[date, float], tr
         unfilled_rate=unfilled_orders / submitted_orders if submitted_orders else 0.0, slippage_cost=slippage_cost, fee_cost=fee_cost,
         strategy_performance=strategy_performance, regime_performance={}, industry_performance={}, return_concentration=concentration, parameter_stability={}
     )
-

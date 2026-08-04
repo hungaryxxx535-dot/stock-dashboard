@@ -9,9 +9,11 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from hermes_quant.backtest.engine import BacktestConfig, BacktestSignal, EventDrivenBacktester
+from hermes_quant.backtest.baseline import run_real_baseline
+from hermes_quant.api.server import QuantApiServer
 from hermes_quant.config import Settings
 from hermes_quant.data.akshare_provider import AkShareProvider, configure_http_environment
-from hermes_quant.data.models import DailyBar, Security
+from hermes_quant.data.models import Announcement, DailyBar, IndustryMembership, MinuteBar, Security
 from hermes_quant.data.provider import ProviderResult, ResilientProvider
 from hermes_quant.data.repository import QuantRepository
 from hermes_quant.data.universe import PointInTimeUniverse
@@ -80,6 +82,48 @@ def _deserialize_securities(payload: dict[str, object]) -> ProviderResult[Securi
     return ProviderResult(str(payload["provider"]), str(payload["endpoint"]), datetime.fromisoformat(str(payload["requested_at"])), datetime.fromisoformat(str(payload["fetched_at"])), payload.get("data_timestamp"), str(payload["data_version"]), items)
 
 
+def _serialize_minutes(result: ProviderResult[MinuteBar]) -> dict[str, object]:
+    return {"provider": result.provider, "endpoint": result.endpoint, "requested_at": result.requested_at.isoformat(), "fetched_at": result.fetched_at.isoformat(), "data_timestamp": result.data_timestamp, "data_version": result.data_version, "items": [item.to_record() for item in result.items]}
+
+
+def _deserialize_minutes(payload: dict[str, object]) -> ProviderResult[MinuteBar]:
+    items = []
+    for raw in payload["items"]:
+        item = dict(raw)
+        item["bar_time"] = datetime.fromisoformat(item["bar_time"])
+        item["fetched_at"] = datetime.fromisoformat(item["fetched_at"])
+        items.append(MinuteBar(**item))
+    return ProviderResult(str(payload["provider"]), str(payload["endpoint"]), datetime.fromisoformat(str(payload["requested_at"])), datetime.fromisoformat(str(payload["fetched_at"])), payload.get("data_timestamp"), str(payload["data_version"]), items)
+
+
+def _serialize_industries(result: ProviderResult[IndustryMembership]) -> dict[str, object]:
+    return {"provider": result.provider, "endpoint": result.endpoint, "requested_at": result.requested_at.isoformat(), "fetched_at": result.fetched_at.isoformat(), "data_timestamp": result.data_timestamp, "data_version": result.data_version, "items": [item.to_record() for item in result.items]}
+
+
+def _deserialize_industries(payload: dict[str, object]) -> ProviderResult[IndustryMembership]:
+    items = []
+    for raw in payload["items"]:
+        item = dict(raw)
+        item["effective_from"] = date.fromisoformat(item["effective_from"])
+        item["effective_to"] = date.fromisoformat(item["effective_to"]) if item.get("effective_to") else None
+        item["announced_at"] = datetime.fromisoformat(item["announced_at"])
+        items.append(IndustryMembership(**item))
+    return ProviderResult(str(payload["provider"]), str(payload["endpoint"]), datetime.fromisoformat(str(payload["requested_at"])), datetime.fromisoformat(str(payload["fetched_at"])), payload.get("data_timestamp"), str(payload["data_version"]), items)
+
+
+def _serialize_announcements(result: ProviderResult[Announcement]) -> dict[str, object]:
+    return {"provider": result.provider, "endpoint": result.endpoint, "requested_at": result.requested_at.isoformat(), "fetched_at": result.fetched_at.isoformat(), "data_timestamp": result.data_timestamp, "data_version": result.data_version, "items": [{**item.__dict__, "published_at": item.published_at.isoformat()} for item in result.items]}
+
+
+def _deserialize_announcements(payload: dict[str, object]) -> ProviderResult[Announcement]:
+    items = []
+    for raw in payload["items"]:
+        item = dict(raw)
+        item["published_at"] = datetime.fromisoformat(item["published_at"])
+        items.append(Announcement(**item))
+    return ProviderResult(str(payload["provider"]), str(payload["endpoint"]), datetime.fromisoformat(str(payload["requested_at"])), datetime.fromisoformat(str(payload["fetched_at"])), payload.get("data_timestamp"), str(payload["data_version"]), items)
+
+
 def sync_securities(settings: Settings) -> int:
     repository = QuantRepository(settings.database_path)
     repository.migrate(MIGRATIONS)
@@ -134,12 +178,98 @@ def sync_bars(settings: Settings, symbol: str, start: date, end: date, increment
         return 1
 
 
+def sync_minutes(settings: Settings, symbol: str, start: datetime, end: datetime, period: str) -> int:
+    repository = QuantRepository(settings.database_path)
+    repository.migrate(MIGRATIONS)
+    proxy_mode = configure_http_environment(settings.http_proxy)
+    provider = AkShareProvider()
+    resilient = ResilientProvider(provider, settings.cache_dir, settings.max_retries, settings.request_rate_per_second, settings.request_timeout_seconds)
+    run_id = repository.start_sync_run(provider.name, "minute_bars", {"symbol": symbol, "start": start.isoformat(), "end": end.isoformat(), "period": period})
+    cache_key = f"akshare:minute:{symbol}:{period}:{start.isoformat()}:{end.isoformat()}"
+    try:
+        result = resilient.execute(cache_key, lambda: provider.fetch_minute_bars(symbol, start, end, period), _serialize_minutes, _deserialize_minutes)
+        if not result.items:
+            raise ValueError("provider returned no minute bars for requested range")
+        quality_errors = 0
+        for item in result.items:
+            if min(item.open, item.high, item.low, item.close) <= 0 or item.high < max(item.open, item.close) or item.low > min(item.open, item.close) or item.volume < 0 or item.amount < 0:
+                quality_errors += 1
+                repository.log_quality("minute_bars", "error", "valid_ohlcv", "invalid minute OHLCV", item.symbol, item.bar_time.date().isoformat())
+        if quality_errors:
+            repository.finish_sync_run(run_id, "failed_quality", 0, result.data_version, "DataQualityError", f"{quality_errors} invalid minute bars")
+            emit({"status": "failed_quality", "run_id": run_id, "errors": quality_errors, "rows_written": 0})
+            return 2
+        rows = repository.upsert_minute_bars(result.items)
+        repository.finish_sync_run(run_id, "succeeded", rows, result.data_version)
+        emit({"status": "ok", "run_id": run_id, "provider": result.provider, "endpoint": result.endpoint, "symbol": symbol, "period_minutes": period, "start": start, "end": end, "data_timestamp": result.data_timestamp, "fetched_at": result.fetched_at, "data_version": result.data_version, "rows": rows, "cache_hit": result.cache_hit, "stale": result.stale, "retry_count": result.attempts - 1, "proxy_mode": proxy_mode, "quality_errors": 0})
+        return 0
+    except Exception as exc:
+        repository.finish_sync_run(run_id, "failed", 0, error_type=type(exc).__name__, error_message=str(exc)[:500])
+        emit({"status": "failed", "run_id": run_id, "provider": provider.name, "endpoint": "minute_bars", "error_type": type(exc).__name__, "error": str(exc)[:500], "rows_written": 0})
+        return 1
+
+
+def sync_industry(settings: Settings, symbol: str, start: date, end: date) -> int:
+    repository = QuantRepository(settings.database_path)
+    repository.migrate(MIGRATIONS)
+    proxy_mode = configure_http_environment(settings.http_proxy)
+    provider = AkShareProvider()
+    resilient = ResilientProvider(provider, settings.cache_dir, settings.max_retries, settings.request_rate_per_second, settings.request_timeout_seconds)
+    run_id = repository.start_sync_run(provider.name, "stock_industry_change_cninfo", {"symbol": symbol, "start": start.isoformat(), "end": end.isoformat()})
+    cache_key = f"akshare:industry:{symbol}:{start.isoformat()}:{end.isoformat()}"
+    try:
+        result = resilient.execute(cache_key, lambda: provider.fetch_industry_history(symbol, start, end), _serialize_industries, _deserialize_industries)
+        if not result.items:
+            raise ValueError("provider returned no industry history for requested range")
+        rows = repository.upsert_industry_memberships(result.items)
+        repository.finish_sync_run(run_id, "succeeded_with_scope_warning", rows, result.data_version)
+        emit({"status": "ok", "run_id": run_id, "provider": result.provider, "endpoint": result.endpoint, "symbol": symbol, "start": start, "end": end, "data_timestamp": result.data_timestamp, "fetched_at": result.fetched_at, "data_version": result.data_version, "rows": rows, "cache_hit": result.cache_hit, "stale": result.stale, "retry_count": result.attempts - 1, "proxy_mode": proxy_mode, "warning": "CNInfo industry history is point-in-time safe only when announced_at is respected; this sync is not a full-market snapshot."})
+        return 0
+    except Exception as exc:
+        repository.finish_sync_run(run_id, "failed", 0, error_type=type(exc).__name__, error_message=str(exc)[:500])
+        emit({"status": "failed", "run_id": run_id, "provider": provider.name, "endpoint": "stock_industry_change_cninfo", "error_type": type(exc).__name__, "error": str(exc)[:500], "rows_written": 0})
+        return 1
+
+
+def sync_announcements(settings: Settings, symbol: str, start: date, end: date) -> int:
+    repository = QuantRepository(settings.database_path)
+    repository.migrate(MIGRATIONS)
+    proxy_mode = configure_http_environment(settings.http_proxy)
+    provider = AkShareProvider()
+    resilient = ResilientProvider(provider, settings.cache_dir, settings.max_retries, settings.request_rate_per_second, settings.request_timeout_seconds)
+    run_id = repository.start_sync_run(provider.name, "announcements", {"symbol": symbol, "start": start.isoformat(), "end": end.isoformat()})
+    cache_key = f"akshare:announcements:{symbol}:{start.isoformat()}:{end.isoformat()}"
+    try:
+        result = resilient.execute(cache_key, lambda: provider.fetch_announcements(symbol, start, end), _serialize_announcements, _deserialize_announcements)
+        rows = repository.upsert_announcements(result.items)
+        repository.finish_sync_run(run_id, "succeeded", rows, result.data_version)
+        emit({"status": "ok", "run_id": run_id, "provider": result.provider, "endpoint": result.endpoint, "symbol": symbol, "start": start, "end": end, "data_timestamp": result.data_timestamp, "fetched_at": result.fetched_at, "data_version": result.data_version, "rows": rows, "cache_hit": result.cache_hit, "stale": result.stale, "retry_count": result.attempts - 1, "proxy_mode": proxy_mode, "empty_is_valid": rows == 0})
+        return 0
+    except Exception as exc:
+        repository.finish_sync_run(run_id, "failed", 0, error_type=type(exc).__name__, error_message=str(exc)[:500])
+        emit({"status": "failed", "run_id": run_id, "provider": provider.name, "endpoint": "announcements", "error_type": type(exc).__name__, "error": str(exc)[:500], "rows_written": 0})
+        return 1
+
+
 def doctor(settings: Settings) -> int:
     repository = QuantRepository(settings.database_path)
     applied = repository.migrate(MIGRATIONS)
     proxy_mode = configure_http_environment(settings.http_proxy)
     provider = AkShareProvider()
-    emit({"status": "ok", "python": sys.version.split()[0], "provider": provider.health_check(), "proxy_mode": proxy_mode, "database": str(settings.database_path), "new_migrations": applied, "execution_mode": settings.execution_mode, "scheduler_jobs": [asdict(spec) for spec in default_job_specs(settings)], "feishu_configured": bool(settings.feishu_webhook_url), "secrets_printed": False})
+    emit({"status": "ok", "python": sys.version.split()[0], "provider": provider.health_check(), "proxy_mode": proxy_mode, "database": str(settings.database_path), "new_migrations": applied, "execution_mode": settings.execution_mode, "scheduler_jobs": [asdict(spec) for spec in default_job_specs(settings)], "feishu_configured": bool(settings.feishu_webhook_url), "quant_api": {"host": settings.api_host, "port": settings.api_port, "token_configured": bool(settings.api_token), "public_bind_allowed": False}, "secrets_printed": False})
+    return 0
+
+
+def serve_api(settings: Settings) -> int:
+    server = QuantApiServer(settings)
+    host, port = server.address
+    emit({"status": "starting", "service": "hermes_quant_api", "host": host, "port": port, "environment": "paper", "real_broker_connected": False})
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.shutdown()
     return 0
 
 
@@ -149,12 +279,27 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("init-db")
     commands.add_parser("smoke")
     commands.add_parser("doctor")
+    commands.add_parser("serve-api")
+    commands.add_parser("backtest-baseline")
     commands.add_parser("sync-securities")
     sync = commands.add_parser("sync-bars")
     sync.add_argument("--symbol", required=True)
     sync.add_argument("--start", required=True, type=date.fromisoformat)
     sync.add_argument("--end", required=True, type=date.fromisoformat)
     sync.add_argument("--incremental", action="store_true")
+    minutes = commands.add_parser("sync-minutes")
+    minutes.add_argument("--symbol", required=True)
+    minutes.add_argument("--start", required=True, type=datetime.fromisoformat)
+    minutes.add_argument("--end", required=True, type=datetime.fromisoformat)
+    minutes.add_argument("--period", choices=("1", "5", "15", "30", "60"), default="5")
+    industry = commands.add_parser("sync-industry")
+    industry.add_argument("--symbol", required=True)
+    industry.add_argument("--start", required=True, type=date.fromisoformat)
+    industry.add_argument("--end", required=True, type=date.fromisoformat)
+    announcements = commands.add_parser("sync-announcements")
+    announcements.add_argument("--symbol", required=True)
+    announcements.add_argument("--start", required=True, type=date.fromisoformat)
+    announcements.add_argument("--end", required=True, type=date.fromisoformat)
     return root
 
 
@@ -167,10 +312,21 @@ def main(argv: list[str] | None = None) -> int:
         return init_db(settings)
     if args.command == "doctor":
         return doctor(settings)
+    if args.command == "serve-api":
+        return serve_api(settings)
+    if args.command == "backtest-baseline":
+        emit(run_real_baseline(QuantRepository(settings.database_path), ROOT / ".local-private" / "backtests"))
+        return 0
     if args.command == "sync-securities":
         return sync_securities(settings)
     if args.command == "sync-bars":
         return sync_bars(settings, args.symbol, args.start, args.end, args.incremental)
+    if args.command == "sync-minutes":
+        return sync_minutes(settings, args.symbol, args.start, args.end, args.period)
+    if args.command == "sync-industry":
+        return sync_industry(settings, args.symbol, args.start, args.end)
+    if args.command == "sync-announcements":
+        return sync_announcements(settings, args.symbol, args.start, args.end)
     return 2
 
 

@@ -8,7 +8,7 @@ import queue
 import threading
 import time
 from abc import ABC, abstractmethod
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from pathlib import Path
 from typing import Generic, TypeVar
@@ -31,6 +31,7 @@ class ProviderResult(Generic[T]):
     cache_hit: bool = False
     stale: bool = False
     error: str | None = None
+    attempts: int = 1
 
 
 class DataProvider(ABC):
@@ -122,7 +123,9 @@ class ResilientProvider:
             try:
                 result = self._with_timeout(operation)
                 self.cache.put(cache_key, serialize(result))
-                return result
+                if attempt == 0:
+                    return result
+                return replace(result, attempts=attempt + 1)
             except Exception as exc:  # provider errors are recorded and retried centrally
                 last_error = exc
                 logger.warning("provider=%s operation=%s attempt=%s error_type=%s", self.provider.name, cache_key, attempt + 1, type(exc).__name__)
@@ -131,6 +134,6 @@ class ResilientProvider:
         cached = self.cache.get(cache_key)
         if cached is not None:
             result = deserialize(cached)
-            return ProviderResult(**{**asdict(result), "cache_hit": True, "stale": True, "error": f"{type(last_error).__name__}: {last_error}"})
+            return replace(result, cache_hit=True, stale=True, error=f"{type(last_error).__name__}: {last_error}", attempts=self.retries)
         assert last_error is not None
         raise last_error

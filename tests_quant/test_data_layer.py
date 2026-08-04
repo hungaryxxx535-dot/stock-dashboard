@@ -9,16 +9,90 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from hermes_quant.data.models import Announcement, DailyBar, IntervalStatus, Security
+from hermes_quant.data.models import Announcement, DailyBar, IndustryMembership, IntervalStatus, MinuteBar, Security
 from hermes_quant.data.repository import QuantRepository
 from hermes_quant.data.universe import PointInTimeUniverse
 from hermes_quant.data.validation import validate_daily_bars
 from hermes_quant.data.provider import DataProvider, ProviderResult, ResilientProvider
 from hermes_quant.data.market_rules import PriceLimitRuleResolver
 from hermes_quant.data.akshare_provider import AkShareProvider, configure_http_environment
+from hermes_quant.config import Settings
+
+
+class SettingsTests(unittest.TestCase):
+    def test_ignored_local_env_is_loaded(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch.dict("os.environ", {}, clear=True):
+            root = Path(directory)
+            (root / ".env.local").write_text(
+                "HERMES_QUANT_API_TOKEN=fixture-token-long-enough\nHERMES_QUANT_API_PORT=8877\n",
+                encoding="utf-8",
+            )
+            settings = Settings.from_env(root)
+            self.assertEqual(settings.api_token, "fixture-token-long-enough")
+            self.assertEqual(settings.api_port, 8877)
+
+    def test_parent_environment_overrides_local_env(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            "os.environ", {"HERMES_QUANT_API_PORT": "8878"}, clear=True
+        ):
+            root = Path(directory)
+            (root / ".env.local").write_text("HERMES_QUANT_API_PORT=8877\n", encoding="utf-8")
+            self.assertEqual(Settings.from_env(root).api_port, 8878)
 
 
 class DataLayerTests(unittest.TestCase):
+    def test_minute_falls_back_to_sina_and_filters_requested_range(self) -> None:
+        class FakeAkShare:
+            @staticmethod
+            def stock_zh_a_hist_min_em(**_kwargs):
+                raise ConnectionError("eastmoney unavailable")
+
+            @staticmethod
+            def stock_zh_a_minute(**_kwargs):
+                return pd.DataFrame(
+                    [
+                        {"day": "2026-08-01 15:00:00", "open": 9, "high": 9, "low": 9, "close": 9, "volume": 1, "amount": 9},
+                        {"day": "2026-08-03 09:30:00", "open": 10, "high": 11, "low": 9, "close": 10.5, "volume": 100, "amount": 1050},
+                    ]
+                )
+
+        result = AkShareProvider(FakeAkShare()).fetch_minute_bars(
+            "600036", datetime(2026, 8, 3, 9, 30), datetime(2026, 8, 3, 15), "5"
+        )
+        self.assertEqual((result.endpoint, len(result.items)), ("stock_zh_a_minute", 1))
+        self.assertEqual(result.items[0].close, 10.5)
+
+    def test_cninfo_industry_and_announcement_mapping(self) -> None:
+        class FakeAkShare:
+            @staticmethod
+            def stock_industry_change_cninfo(**_kwargs):
+                return pd.DataFrame(
+                    [{"证券代码": "600036", "行业编码": "J66", "行业大类": "货币金融服务", "分类标准": "上市公司协会", "变更日期": "2024-02-08"}]
+                )
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "data": {
+                        "total_hits": 1,
+                        "list": [{
+                            "art_code": "AN1",
+                            "notice_date": "2026-07-29 00:00:00",
+                            "title": "测试公告",
+                            "codes": [{"stock_code": "600036"}],
+                        }],
+                    }
+                }
+
+        provider = AkShareProvider(FakeAkShare(), http_get=lambda *_args, **_kwargs: FakeResponse())
+        industries = provider.fetch_industry_history("600036", date(1990, 1, 1), date(2026, 8, 3))
+        announcements = provider.fetch_announcements("600036", date(2026, 7, 1), date(2026, 8, 3))
+        self.assertEqual((len(industries.items), industries.items[0].industry_code), (1, "J66"))
+        self.assertEqual((len(announcements.items), announcements.items[0].announcement_id), (1, "AN1"))
+
     def test_akshare_daily_falls_back_from_eastmoney_to_sina(self) -> None:
         class FakeAkShare:
             __version__ = "fixture"
@@ -87,7 +161,7 @@ class DataLayerTests(unittest.TestCase):
         resolver = PriceLimitRuleResolver(self.repo)
         self.assertEqual(resolver.resolve("MAIN", date(2024, 1, 2)).limit_up_pct, 0.10)
         self.assertEqual(resolver.resolve("CHINEXT", date(2024, 1, 2)).limit_up_pct, 0.20)
-        self.assertIsNone(resolver.resolve("CHINEXT", date(2020, 8, 23)))
+        self.assertEqual(resolver.resolve("CHINEXT", date(2020, 8, 23)).limit_up_pct, 0.10)
 
     def test_provider_timeout_retries_then_recovers_from_cache(self) -> None:
         class FixtureProvider(DataProvider):
@@ -105,6 +179,24 @@ class DataLayerTests(unittest.TestCase):
         self.assertTrue(recovered.cache_hit)
         self.assertTrue(recovered.stale)
         self.assertIn("TimeoutError", recovered.error)
+
+    def test_extended_market_data_upserts_are_idempotent(self) -> None:
+        fetched = datetime(2026, 8, 3, 16, tzinfo=timezone.utc)
+        minute = MinuteBar("600036", fetched, 10, 11, 9, 10.5, 100, 1050, "fixture", fetched, "v1")
+        industry = IndustryMembership("600036", "J66", "银行", "fixture", date(2024, 2, 8), None, fetched, "fixture")
+        announcement = Announcement("600036", "AN1", "公告", fetched, "fixture")
+        self.assertEqual(self.repo.upsert_minute_bars([minute]), 1)
+        self.assertEqual(self.repo.upsert_minute_bars([minute]), 1)
+        self.assertEqual(self.repo.upsert_industry_memberships([industry]), 1)
+        self.assertEqual(self.repo.upsert_industry_memberships([industry]), 1)
+        self.assertEqual(self.repo.upsert_announcements([announcement]), 1)
+        self.assertEqual(self.repo.upsert_announcements([announcement]), 1)
+        with self.repo.session() as connection:
+            counts = tuple(
+                connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                for table in ("minute_bars", "industry_membership_history", "announcements")
+            )
+        self.assertEqual(counts, (1, 1, 1))
 
 
 class PointInTimeUniverseTests(unittest.TestCase):
