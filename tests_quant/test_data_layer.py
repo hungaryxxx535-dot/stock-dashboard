@@ -7,8 +7,6 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-import pandas as pd
-
 from hermes_quant.data.models import Announcement, DailyBar, IndustryMembership, IntervalStatus, MinuteBar, Security
 from hermes_quant.data.repository import QuantRepository
 from hermes_quant.data.universe import PointInTimeUniverse
@@ -17,6 +15,27 @@ from hermes_quant.data.provider import DataProvider, ProviderResult, ResilientPr
 from hermes_quant.data.market_rules import PriceLimitRuleResolver
 from hermes_quant.data.akshare_provider import AkShareProvider, configure_http_environment
 from hermes_quant.config import Settings
+
+
+class FixtureFrame:
+    """Minimal DataFrame-shaped fixture for provider unit tests.
+
+    The production adapter accepts pandas frames returned by AkShare, but these
+    tests only need ``empty`` and ``iterrows``. Keeping the fixture dependency
+    free lets the offline core test suite run before optional AkShare packages
+    are installed.
+    """
+
+    def __init__(self, rows, index=None) -> None:
+        self._rows = list(rows)
+        self._index = list(index) if index is not None else list(range(len(self._rows)))
+
+    @property
+    def empty(self) -> bool:
+        return not self._rows
+
+    def iterrows(self):
+        return iter(zip(self._index, self._rows))
 
 
 class SettingsTests(unittest.TestCase):
@@ -49,7 +68,7 @@ class DataLayerTests(unittest.TestCase):
 
             @staticmethod
             def stock_zh_a_minute(**_kwargs):
-                return pd.DataFrame(
+                return FixtureFrame(
                     [
                         {"day": "2026-08-01 15:00:00", "open": 9, "high": 9, "low": 9, "close": 9, "volume": 1, "amount": 9},
                         {"day": "2026-08-03 09:30:00", "open": 10, "high": 11, "low": 9, "close": 10.5, "volume": 100, "amount": 1050},
@@ -66,7 +85,7 @@ class DataLayerTests(unittest.TestCase):
         class FakeAkShare:
             @staticmethod
             def stock_industry_change_cninfo(**_kwargs):
-                return pd.DataFrame(
+                return FixtureFrame(
                     [{"证券代码": "600036", "行业编码": "J66", "行业大类": "货币金融服务", "分类标准": "上市公司协会", "变更日期": "2024-02-08"}]
                 )
 
@@ -103,7 +122,7 @@ class DataLayerTests(unittest.TestCase):
 
             @staticmethod
             def stock_zh_a_daily(**_kwargs):
-                return pd.DataFrame(
+                return FixtureFrame(
                     [{"open": 10, "high": 11, "low": 9, "close": 10.5, "volume": 1000, "amount": 10500}],
                     index=[date(2024, 1, 2)],
                 )
