@@ -8,8 +8,6 @@ from typing import Any
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
-import requests
-
 from .models import Announcement, DailyBar, IndustryMembership, MinuteBar, Security
 from .provider import DataProvider, ProviderResult
 
@@ -42,6 +40,13 @@ def _float(value: Any) -> float:
     return float(str(value).replace(",", ""))
 
 
+def _requests_get(*args, **kwargs):
+    """Import the optional HTTP client only when a network call is made."""
+    import requests
+
+    return requests.get(*args, **kwargs)
+
+
 class AkShareProvider(DataProvider):
     name = "akshare"
 
@@ -49,7 +54,7 @@ class AkShareProvider(DataProvider):
         if module is None:
             import akshare as module  # lazy import keeps offline core dependency-light
         self.ak = module
-        self.http_get = http_get or requests.get
+        self.http_get = http_get or _requests_get
 
     @staticmethod
     def _version(endpoint: str, payload: object) -> str:
