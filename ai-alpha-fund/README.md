@@ -1,10 +1,13 @@
 # AI Alpha Fund Dashboard
 
-Autonomous A-share + US stock investment simulation system.
+Autonomous investment simulation platform.
 
 Modules:
 - Fund dashboard
-- Portfolio tracking
-- AI trading journal
-- Risk engine
-- Performance analysis
+- A-share + US stock portfolio tracking
+- AI trading decision engine
+- Risk management
+- Performance analytics
+- Daily review system
+
+Status: building production version.
