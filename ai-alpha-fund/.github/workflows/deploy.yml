@@ -1,0 +1,13 @@
+name: AI Alpha Fund Build
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Check
+        run: echo "AI Alpha Fund build pipeline ready"
