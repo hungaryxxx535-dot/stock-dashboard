@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: ai-alpha-fund-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.app.main:app --host 0.0.0.0
