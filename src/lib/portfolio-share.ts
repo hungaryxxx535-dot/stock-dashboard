@@ -8,7 +8,7 @@ const SharedSnapshotSchema = z.object({
   h: z.array(z.object({
     a: z.number().int().nonnegative(), s: z.string(), n: z.string(), m: z.enum(["CN", "HK", "US", "CASH"]),
     c: z.enum(["CNY", "USD", "HKD"]), t: z.enum(["stock", "etf", "cash", "fund", "other"]),
-    se: z.array(z.string()), st: z.array(z.string()), q: z.number(), bc: z.number(), ec: z.number(), p: z.number().nullable(),
+    se: z.array(z.string()).default([]), st: z.array(z.string()).default([]), q: z.number(), bc: z.number(), ec: z.number(), p: z.number().nullable(),
   })),
   c: z.array(z.object({ a: z.number().int().nonnegative().nullable(), l: z.string(), c: z.enum(["CNY", "USD", "HKD"]), v: z.number(), o: z.boolean() })),
   x: z.record(z.enum(["CNY", "USD", "HKD"]), z.number().positive()),
