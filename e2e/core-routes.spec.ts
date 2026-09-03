@@ -35,6 +35,19 @@ test("home explains the mission gate and exposes actionable tasks", async ({ pag
   await expect(page.getByRole("link", { name: /检查数据源/ })).toHaveAttribute("href", "/system-status");
 });
 
+test("plan editor enforces position limits and exposes audited transitions", async ({ page }) => {
+  await page.goto("/plans");
+  await expect(page.getByRole("heading", { name: "新建计划草稿" })).toBeVisible();
+  await page.getByLabel("目标仓位（%）").fill("25");
+  await page.getByRole("button", { name: "保存计划草稿" }).click();
+  await expect(page.getByRole("status")).toContainText("单标的上限 20%");
+  await page.getByLabel("目标仓位（%）").fill("10");
+  await page.getByRole("button", { name: "保存计划草稿" }).click();
+  await expect(page.getByRole("status")).toContainText("计划草稿已保存");
+  await expect(page.getByRole("button", { name: "条件已满足" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "提交等待" })).toBeVisible();
+});
+
 test("portfolio separates A-share, US and Hong Kong holdings without manual-add form", async ({ page }) => {
   await page.goto("/portfolio");
   await expect(page.getByRole("heading", { name: "我的A股" })).toBeVisible();
