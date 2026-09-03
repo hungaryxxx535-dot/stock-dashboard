@@ -8,6 +8,7 @@ import { IndexedDbPortfolioRepository } from "@/lib/storage/indexeddb-repository
 import { hasLegacyBrowserData, migrateLegacyBrowserData } from "@/lib/storage/migration";
 import type { PortfolioRepository } from "@/lib/storage/repository";
 import { isSupabaseConfigured, SupabasePortfolioRepository } from "@/lib/storage/supabase-adapter";
+import { decodePortfolioShare } from "@/lib/portfolio-share";
 
 type DataContextValue = {
   state: AppState; ready: boolean; error: string; legacyAvailable: boolean;
@@ -37,8 +38,21 @@ export function DataProvider({ children }: { children: ReactNode }) {
     let active = true;
     repository.load().then(async (stored) => {
       if (!active) return;
-      const next = stored ?? freshDemoState();
-      if (!stored) await repository.save(next);
+      const token = new URLSearchParams(window.location.hash.slice(1)).get("portfolio");
+      let next = stored ?? freshDemoState();
+      if (token && (!stored || stored.mode === "demo")) {
+        try {
+          next = decodePortfolioShare(token);
+          await repository.save(next);
+          window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+        } catch {
+          setError("跨设备持仓链接无效或已损坏，未改变当前数据。");
+        }
+      } else if (token && stored?.mode !== "demo") {
+        setError("当前浏览器已有私有持仓，未使用分享链接覆盖。请先导出备份，或在新设备中打开该链接。");
+      } else if (!stored) {
+        await repository.save(next);
+      }
       current.current = next; setState(next);
       setLegacyAvailable(hasLegacyBrowserData(window.localStorage));
     }).catch(() => setError("本地数据库暂不可用；当前仅使用本次会话中的匿名演示数据。"))

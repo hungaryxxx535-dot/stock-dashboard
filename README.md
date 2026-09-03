@@ -6,6 +6,8 @@
 
 仓库现包含隔离的 `hermes_quant/` Python 核心，用于版本化历史数据、Point-in-Time 股票池、五个独立基准策略、事件顺序回测、Paper Broker、五账户对照、Champion–Challenger治理、默认关闭的日程和可选飞书消息。该核心没有真实券商连接能力。
 
+前端设置页支持生成跨设备持仓链接。持仓快照放在 URL 片段中，不发送到 Web 服务器；新手机首次打开后写入该设备的 IndexedDB，并立即从地址栏移除片段。已有本地私有数据的浏览器不会被分享链接自动覆盖。
+
 ```bash
 python -m hermes_quant.cli init-db
 python -m unittest discover -s tests_quant -v
