@@ -27,6 +27,14 @@ test("mobile navigation leaves the main content accessible", async ({ page }) =>
   }
 });
 
+test("home explains the mission gate and exposes actionable tasks", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByText("决策准备度")).toBeVisible();
+  await expect(page.getByRole("heading", { name: /今日任务/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "作战闸门" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /检查数据源/ })).toHaveAttribute("href", "/system-status");
+});
+
 test("portfolio separates A-share, US and Hong Kong holdings without manual-add form", async ({ page }) => {
   await page.goto("/portfolio");
   await expect(page.getByRole("heading", { name: "我的A股" })).toBeVisible();

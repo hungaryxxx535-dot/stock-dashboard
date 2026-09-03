@@ -78,3 +78,5 @@ npm run test:e2e
 ```
 
 更多说明见 [产品规格](PRODUCT_SPEC.md)、[架构](ARCHITECTURE.md)、[数据模型](DATA_MODEL.md)、[数据源](DATA_SOURCES.md)、[迁移](MIGRATION.md)、[安全](SECURITY.md) 和 [部署](DEPLOYMENT.md)。
+
+持续完善顺序与验收门槛见 [产品路线图](docs/PRODUCT_ROADMAP.md)。

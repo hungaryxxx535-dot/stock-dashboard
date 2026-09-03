@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRight, CheckCircle2, Database, Download, Loader2, Plus, RefreshCw, ShieldAlert, Upload } from "lucide-react";
+import { ArrowRight, CheckCircle2, Database, Download, Loader2, Plus, RefreshCw, ShieldAlert, Upload } from "lucide-react";
 import { usePortfolioData } from "@/components/data-provider";
 import { PortfolioScreenshotImportV2 } from "@/components/portfolio-screenshot-import-v2";
 import { calculatePortfolioMetrics, runStressTests } from "@/domain/engines/portfolio-risk-engine";
+import { buildMissionControl, type MissionSeverity } from "@/domain/engines/mission-control-engine";
 import { buildPeriodReview } from "@/domain/engines/review-engine";
 import type { AppState } from "@/domain/model";
 import { loadMarketSummary } from "@/lib/market-summary";
@@ -48,12 +49,18 @@ export function Workbench({ view }: { view: View }) {
 }
 
 function HomePage({ state, metrics, error }: { state: AppState; metrics: ReturnType<typeof calculatePortfolioMetrics>; error: string }) {
-  const command = metrics.dataConfidence < 50 ? "等待数据：先补齐行情时间与来源，再评估操作。" : metrics.totalPositionPct > state.settings.maxTotalPositionPct ? "风险优先：总仓位超过设定上限，先复核减仓计划。" : "按计划观察：当前没有触发强制动作的风险规则。";
+  const mission = useMemo(() => buildMissionControl(state), [state]);
+  const severityStyle: Record<MissionSeverity, string> = {
+    blocker: "border-red-300 bg-red-50 text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100",
+    critical: "border-orange-300 bg-orange-50 text-orange-950 dark:border-orange-900 dark:bg-orange-950/30 dark:text-orange-100",
+    warning: "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100",
+    info: "border-slate-200 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100",
+  };
   return <><PageHeader title="今日作战台" description="先看数据质量，再看风险与计划。所有金额均为本机数据计算，公开部署只含匿名演示状态。" action={<Link className={buttonClass} href="/plans/daily">查看日程 <ArrowRight className="h-4 w-4" /></Link>} />
     {error && <div className="mb-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{error}</div>}
-    <Panel className="mb-4 !border-slate-900 !bg-slate-950 !text-white dark:!border-cyan-400"><p className="text-xs font-bold uppercase tracking-widest text-cyan-300">今日总指令</p><p className="mt-3 text-xl font-black">{command}</p><p className="mt-2 text-sm text-slate-300">数据置信度 {metrics.dataConfidence}% · 模式 {state.mode === "demo" ? "匿名演示" : "本地私有"}</p></Panel>
+    <Panel className="mb-4 !border-slate-900 !bg-slate-950 !text-white dark:!border-cyan-400"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><p className="text-xs font-bold uppercase tracking-widest text-cyan-300">今日总指令 · {mission.statusLabel}</p><p className="mt-3 text-xl font-black">{mission.command}</p><p className="mt-2 text-sm text-slate-300">数据置信度 {metrics.dataConfidence}% · 模式 {state.mode === "demo" ? "匿名演示" : "本地私有"}</p></div><div className="shrink-0 rounded-2xl border border-white/20 px-5 py-3 text-center"><p className="text-3xl font-black">{mission.readinessScore}</p><p className="text-xs text-slate-300">决策准备度</p></div></div></Panel>
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric label="总资产估算" value={money(metrics.totalAssets)} note="缺失行情时使用经济成本估算" /><Metric label="整体仓位" value={pct(metrics.totalPositionPct)} note={`上限 ${state.settings.maxTotalPositionPct}%`} /><Metric label="最大单仓" value={pct(metrics.largestHoldingPct)} note={`上限 ${state.settings.maxSinglePositionPct}%`} /><Metric label="科技暴露" value={pct(metrics.technologyExposurePct)} note={`上限 ${state.settings.maxTechnologyExposurePct}%`} /></div>
-    <div className="mt-4 grid gap-4 lg:grid-cols-2"><Panel title="待处理"><ul className="space-y-3 text-sm">{metrics.dataConfidence < 100 && <li className="flex gap-2"><AlertTriangle className="h-5 w-5 text-amber-500" />行情不完整，价格相关结论必须降级。</li>}{state.tradePlans.filter((plan) => ["waiting", "actionable"].includes(plan.status)).map((plan) => <li key={plan.id} className="flex gap-2"><CheckCircle2 className="h-5 w-5 text-cyan-600" />计划 {plan.direction} · {state.instruments.find((item) => item.id === plan.instrumentId)?.symbol ?? "未知标的"}</li>)}</ul></Panel><Panel title="数据边界"><p className="text-sm leading-7 text-slate-600 dark:text-slate-300">持仓、交易、复盘默认写入浏览器 IndexedDB。云同步未配置时不会上传；市场接口失败时保留来源、抓取时间和降级状态，不用静态价格冒充实时数据。</p></Panel></div>
+    <div className="mt-4 grid gap-4 lg:grid-cols-[1.4fr_1fr]"><Panel title={`今日任务 · ${mission.items.length}`}><div className="space-y-3">{mission.items.slice(0, 6).map((item) => <article key={item.id} className={`rounded-xl border p-3 ${severityStyle[item.severity]}`}><div className="flex items-start justify-between gap-3"><div><p className="font-black">{item.title}</p><p className="mt-1 text-sm opacity-75">{item.reason}</p></div><Link href={item.href} className="shrink-0 text-sm font-bold">{item.actionLabel} →</Link></div></article>)}</div></Panel><Panel title="作战闸门"><dl className="grid grid-cols-2 gap-3 text-sm"><dt>阻断项</dt><dd className="text-right font-black text-red-600">{mission.counts.blocker}</dd><dt>严重项</dt><dd className="text-right font-black text-orange-600">{mission.counts.critical}</dd><dt>预警项</dt><dd className="text-right font-black text-amber-600">{mission.counts.warning}</dd><dt>提醒项</dt><dd className="text-right font-black">{mission.counts.info}</dd></dl><p className="mt-4 text-sm leading-7 text-slate-600 dark:text-slate-300">任务由持仓行情、风险规则、计划有效期、未处理警报和复盘完整度自动生成。准备度只表示流程是否齐备，不预测涨跌，也不是交易建议。</p></Panel></div>
   </>;
 }
 
@@ -133,6 +140,7 @@ function PlansPage() {
 }
 function DailyPage() {
   const { state, save } = usePortfolioData();
+  const mission = useMemo(() => buildMissionControl(state), [state]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const stages: Array<[string, string, string]> = [
@@ -176,6 +184,7 @@ function DailyPage() {
   return (
     <>
       <PageHeader title="每日作战流程" description="定时任务未配置密钥时保持手工模式；页面不会因此失效。" />
+      <Panel className="mb-4 !border-slate-900 !bg-slate-950 !text-white"><div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><p className="text-xs font-bold uppercase tracking-widest text-cyan-300">当前闸门 · {mission.statusLabel}</p><p className="mt-2 font-black">{mission.command}</p></div><Link href="/" className="text-sm font-bold text-cyan-300">处理 {mission.items.length} 项任务 →</Link></div></Panel>
       <Panel>
         <ol className="space-y-4">
           {stages.map(([time, title, detail]) => (
