@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { BarChart3, BookOpen, Briefcase, CalendarCheck, Command, Gauge, Home, Menu, Search, Settings, Shield, X } from "lucide-react";
+import { Activity, BarChart3, BookOpen, Briefcase, CalendarCheck, Command, Gauge, Home, Menu, Search, Settings, Shield, TestTube2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const primary = [
@@ -14,8 +14,10 @@ const primary = [
   { href: "/settings", label: "我的", icon: Settings },
 ];
 const secondary = [
+  { href: "/paper", label: "模拟委托", icon: TestTube2 },
   { href: "/market", label: "市场", icon: BarChart3 },
   { href: "/risk", label: "风险", icon: Shield },
+  { href: "/system-status", label: "系统状态", icon: Activity },
   { href: "/journal", label: "复盘", icon: BookOpen },
   { href: "/portfolio/import", label: "导入中心", icon: Gauge },
 ];

@@ -1,2 +1,3 @@
-import { redirect } from "next/navigation";
-export default function Page() { redirect("/settings"); }
+import { SystemStatusDashboard } from "@/components/system-status-dashboard";
+
+export default function Page() { return <SystemStatusDashboard />; }
