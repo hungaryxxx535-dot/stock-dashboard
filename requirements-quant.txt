@@ -1,0 +1,3 @@
+# Core uses the Python 3.11 standard library. AkShare integration is optional.
+akshare==1.18.75
+

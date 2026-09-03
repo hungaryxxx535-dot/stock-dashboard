@@ -2,6 +2,32 @@
 
 面向个人投资者的本地优先、移动优先作战系统。它把持仓、市场、研究、计划、风险和复盘放进一条可审计的工作流，但不连接券商下单、不承诺收益，也不把缺失数据伪装为实时数据。
 
+## Hermes 量化核心
+
+仓库现包含隔离的 `hermes_quant/` Python 核心，用于版本化历史数据、Point-in-Time 股票池、五个独立基准策略、事件顺序回测、Paper Broker、五账户对照、Champion–Challenger治理、默认关闭的日程和可选飞书消息。该核心没有真实券商连接能力。
+
+```bash
+python -m hermes_quant.cli init-db
+python -m unittest discover -s tests_quant -v
+python -m hermes_quant.cli smoke
+python -m hermes_quant.cli doctor
+npm run quant:api:start
+npm run quant:api:status
+npm run quant:backtest
+```
+
+真实数据只读同步示例：
+
+```bash
+python -m hermes_quant.cli sync-securities
+python -m hermes_quant.cli sync-bars --symbol 600036 --start 2024-01-02 --end 2024-01-10 --incremental
+python -m hermes_quant.cli sync-minutes --symbol 600036 --start 2026-08-03T09:30:00 --end 2026-08-03T15:00:00 --period 5
+python -m hermes_quant.cli sync-industry --symbol 600036 --start 1990-01-01 --end 2026-08-03
+python -m hermes_quant.cli sync-announcements --symbol 600036 --start 2026-07-01 --end 2026-08-03
+```
+
+当前 AkShare 证券主表是“当前上市快照”，不含完整退市、历史ST、停牌、公告与行业成员历史。在这些数据补齐前，禁止把全市场历史回测称为可信结果。`quant:smoke` 只使用明确标记的测试夹具验证机制，不输出真实策略业绩。
+
 ## 已实现
 
 - 统一 App Shell：桌面可折叠侧栏、移动端五入口和 `Ctrl/Cmd + K` 命令面板。
@@ -10,6 +36,10 @@
 - 市场 Provider 聚合与超时、部分可用、缓存、过期、未配置、失败降级状态。
 - 市场雷达免密钥接入腾讯公开指数、新浪商品/汇率与新浪财经新闻、AKShare 宏观（PMI/CPI/PPI/Shibor）；Tushare 配置后自动增强。北向资金日度净买入自 2024-08 起交易所停止披露，平台如实标注不提供该指标。
 - 研究 14 维框架、观察池、结构化计划、每日时间线、风险压力测试和过程/结果分离的复盘。
+- 每日作战引擎：按数据、风险、计划、警报和复盘生成优先任务与可解释准备度。
+- 完整计划编辑与受控状态机，过期计划不能继续推进。
+- 本机 Paper 模拟委托台：计划准入、人工确认、限价委托、撤销、持仓与账户查询。
+- 风险警报同步与处置留痕、计划关联复盘、系统与数据健康总览。
 - 自动日/周/月复盘与“今日归档”：一键生成可审计复盘报告，归档时创建日终快照。
 - 无密钥可构建；Supabase、Cron、Tushare、AKShare、FRED 和 Twelve Data 均为可选能力。
 
@@ -26,6 +56,12 @@ npm run dev
 
 ```bash
 npm run services
+```
+
+停止由上述命令记录的本地服务：
+
+```bash
+npm run services:stop
 ```
 
 可选云同步（Supabase）：设置 `NEXT_PUBLIC_SUPABASE_URL` 与 `NEXT_PUBLIC_SUPABASE_ANON_KEY` 后自动启用；建表 SQL 见 `src/lib/storage/supabase-adapter.ts` 顶部注释。未配置时保持本地 IndexedDB 模式。
@@ -46,3 +82,7 @@ npm run test:e2e
 ```
 
 更多说明见 [产品规格](PRODUCT_SPEC.md)、[架构](ARCHITECTURE.md)、[数据模型](DATA_MODEL.md)、[数据源](DATA_SOURCES.md)、[迁移](MIGRATION.md)、[安全](SECURITY.md) 和 [部署](DEPLOYMENT.md)。
+
+持续完善顺序与验收门槛见 [产品路线图](docs/PRODUCT_ROADMAP.md)。
+
+本轮最终交付范围与限制见 [最终验收报告](docs/FINAL_ACCEPTANCE.md)。

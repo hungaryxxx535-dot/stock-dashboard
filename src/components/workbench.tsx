@@ -2,11 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRight, CheckCircle2, Database, Download, Loader2, Plus, RefreshCw, ShieldAlert, Upload } from "lucide-react";
+import { ArrowRight, CheckCircle2, Database, Download, Loader2, Plus, RefreshCw, ShieldAlert, Upload } from "lucide-react";
 import { usePortfolioData } from "@/components/data-provider";
 import { PortfolioScreenshotImportV2 } from "@/components/portfolio-screenshot-import-v2";
 import { calculatePortfolioMetrics, runStressTests } from "@/domain/engines/portfolio-risk-engine";
+import { synchronizeRiskAlerts } from "@/domain/engines/risk-alert-engine";
+import { buildMissionControl, type MissionSeverity } from "@/domain/engines/mission-control-engine";
 import { buildPeriodReview } from "@/domain/engines/review-engine";
+import { canTransitionPlan, transitionTradePlan } from "@/domain/engines/trade-plan-engine";
 import type { AppState } from "@/domain/model";
 import { loadMarketSummary } from "@/lib/market-summary";
 import { isNameOnlySymbol, marketLabel, type EquityMarket } from "@/lib/portfolio-import/screenshot";
@@ -48,12 +51,18 @@ export function Workbench({ view }: { view: View }) {
 }
 
 function HomePage({ state, metrics, error }: { state: AppState; metrics: ReturnType<typeof calculatePortfolioMetrics>; error: string }) {
-  const command = metrics.dataConfidence < 50 ? "等待数据：先补齐行情时间与来源，再评估操作。" : metrics.totalPositionPct > state.settings.maxTotalPositionPct ? "风险优先：总仓位超过设定上限，先复核减仓计划。" : "按计划观察：当前没有触发强制动作的风险规则。";
+  const mission = useMemo(() => buildMissionControl(state), [state]);
+  const severityStyle: Record<MissionSeverity, string> = {
+    blocker: "border-red-300 bg-red-50 text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100",
+    critical: "border-orange-300 bg-orange-50 text-orange-950 dark:border-orange-900 dark:bg-orange-950/30 dark:text-orange-100",
+    warning: "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100",
+    info: "border-slate-200 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100",
+  };
   return <><PageHeader title="今日作战台" description="先看数据质量，再看风险与计划。所有金额均为本机数据计算，公开部署只含匿名演示状态。" action={<Link className={buttonClass} href="/plans/daily">查看日程 <ArrowRight className="h-4 w-4" /></Link>} />
     {error && <div className="mb-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{error}</div>}
-    <Panel className="mb-4 !border-slate-900 !bg-slate-950 !text-white dark:!border-cyan-400"><p className="text-xs font-bold uppercase tracking-widest text-cyan-300">今日总指令</p><p className="mt-3 text-xl font-black">{command}</p><p className="mt-2 text-sm text-slate-300">数据置信度 {metrics.dataConfidence}% · 模式 {state.mode === "demo" ? "匿名演示" : "本地私有"}</p></Panel>
+    <Panel className="mb-4 !border-slate-900 !bg-slate-950 !text-white dark:!border-cyan-400"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><p className="text-xs font-bold uppercase tracking-widest text-cyan-300">今日总指令 · {mission.statusLabel}</p><p className="mt-3 text-xl font-black">{mission.command}</p><p className="mt-2 text-sm text-slate-300">数据置信度 {metrics.dataConfidence}% · 模式 {state.mode === "demo" ? "匿名演示" : "本地私有"}</p></div><div className="shrink-0 rounded-2xl border border-white/20 px-5 py-3 text-center"><p className="text-3xl font-black">{mission.readinessScore}</p><p className="text-xs text-slate-300">决策准备度</p></div></div></Panel>
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric label="总资产估算" value={money(metrics.totalAssets)} note="缺失行情时使用经济成本估算" /><Metric label="整体仓位" value={pct(metrics.totalPositionPct)} note={`上限 ${state.settings.maxTotalPositionPct}%`} /><Metric label="最大单仓" value={pct(metrics.largestHoldingPct)} note={`上限 ${state.settings.maxSinglePositionPct}%`} /><Metric label="科技暴露" value={pct(metrics.technologyExposurePct)} note={`上限 ${state.settings.maxTechnologyExposurePct}%`} /></div>
-    <div className="mt-4 grid gap-4 lg:grid-cols-2"><Panel title="待处理"><ul className="space-y-3 text-sm">{metrics.dataConfidence < 100 && <li className="flex gap-2"><AlertTriangle className="h-5 w-5 text-amber-500" />行情不完整，价格相关结论必须降级。</li>}{state.tradePlans.filter((plan) => ["waiting", "actionable"].includes(plan.status)).map((plan) => <li key={plan.id} className="flex gap-2"><CheckCircle2 className="h-5 w-5 text-cyan-600" />计划 {plan.direction} · {state.instruments.find((item) => item.id === plan.instrumentId)?.symbol ?? "未知标的"}</li>)}</ul></Panel><Panel title="数据边界"><p className="text-sm leading-7 text-slate-600 dark:text-slate-300">持仓、交易、复盘默认写入浏览器 IndexedDB。云同步未配置时不会上传；市场接口失败时保留来源、抓取时间和降级状态，不用静态价格冒充实时数据。</p></Panel></div>
+    <div className="mt-4 grid gap-4 lg:grid-cols-[1.4fr_1fr]"><Panel title={`今日任务 · ${mission.items.length}`}><div className="space-y-3">{mission.items.slice(0, 6).map((item) => <article key={item.id} className={`rounded-xl border p-3 ${severityStyle[item.severity]}`}><div className="flex items-start justify-between gap-3"><div><p className="font-black">{item.title}</p><p className="mt-1 text-sm opacity-75">{item.reason}</p></div><Link href={item.href} className="shrink-0 text-sm font-bold">{item.actionLabel} →</Link></div></article>)}</div></Panel><Panel title="作战闸门"><dl className="grid grid-cols-2 gap-3 text-sm"><dt>阻断项</dt><dd className="text-right font-black text-red-600">{mission.counts.blocker}</dd><dt>严重项</dt><dd className="text-right font-black text-orange-600">{mission.counts.critical}</dd><dt>预警项</dt><dd className="text-right font-black text-amber-600">{mission.counts.warning}</dd><dt>提醒项</dt><dd className="text-right font-black">{mission.counts.info}</dd></dl><p className="mt-4 text-sm leading-7 text-slate-600 dark:text-slate-300">任务由持仓行情、风险规则、计划有效期、未处理警报和复盘完整度自动生成。准备度只表示流程是否齐备，不预测涨跌，也不是交易建议。</p></Panel></div>
   </>;
 }
 
@@ -126,13 +135,45 @@ function WatchlistPage() {
   return <><PageHeader title="观察池" description="分数只在数据完整度足够时展示，并保留上一评分与变化原因。" /><Panel><div className="space-y-3">{state.watchlistItems.map((item) => { const instrument = state.instruments.find((x) => x.id === item.instrumentId); return <div key={item.id} className="grid gap-2 rounded-xl border p-4 sm:grid-cols-[1fr_auto]"><div><b>{instrument?.symbol}</b><p className="text-sm text-slate-500">{item.reasons.join("；")}</p><p className="mt-2 text-xs text-amber-700">风险：{item.risks.join("；")}</p></div><div className="text-right"><p className="text-2xl font-black">{item.score ?? "—"}</p><p className="text-xs text-slate-500">置信度 {item.confidence}%</p></div></div>})}</div></Panel></>;
 }
 function PlansPage() {
-  const { state, save } = usePortfolioData(); const [instrumentId, setInstrumentId] = useState(state.instruments[0]?.id ?? "");
-  const add = () => { const now = new Date().toISOString(); const instrument = state.instruments.find((item) => item.id === instrumentId); if (!instrument) return; void save((current) => ({ ...current, tradePlans: [...current.tradePlans, { id: id("plan"), instrumentId, market: instrument.market, direction: "observe", planType: "swing", targetPositionPct: 0, entryCondition: "等待结构确认", entryRange: "未设置", addCondition: "未设置", reduceCondition: "风险规则触发时复核", stopLoss: null, takeProfit: null, invalidation: "核心假设失效", catalysts: [], risks: ["数据待补齐"], validUntil: new Date(Date.now() + 30 * 86400000).toISOString(), status: "draft", note: "", createdAt: now, updatedAt: now }] })); };
-  const advance = (planId: string) => save((current) => ({ ...current, tradePlans: current.tradePlans.map((plan) => plan.id === planId ? { ...plan, status: plan.status === "draft" ? "waiting" : plan.status === "waiting" ? "actionable" : "completed", updatedAt: new Date().toISOString() } : plan) }));
-  return <><PageHeader title="交易计划" description="从草稿、等待、可执行到完成或失效，全程保留条件与状态。" action={<Link className={buttonClass} href="/plans/daily">每日流程</Link>} /><Panel className="mb-4"><div className="flex flex-col gap-2 sm:flex-row"><select className={inputClass} value={instrumentId} onChange={(e) => setInstrumentId(e.target.value)}>{state.instruments.map((item) => <option key={item.id} value={item.id}>{item.symbol} · {item.name}</option>)}</select><button onClick={add} className={buttonClass}><Plus className="h-4 w-4" />新建观察计划</button></div></Panel><div className="grid gap-4 lg:grid-cols-2">{state.tradePlans.map((plan) => <Panel key={plan.id}><div className="flex items-center justify-between"><b>{state.instruments.find((item) => item.id === plan.instrumentId)?.symbol}</b><span className="rounded-full bg-slate-100 px-2 py-1 text-xs dark:bg-slate-800">{plan.status}</span></div><p className="mt-3 text-sm">{plan.entryCondition}</p><p className="mt-2 text-xs text-slate-500">失效：{plan.invalidation}</p>{!["completed", "invalidated", "cancelled"].includes(plan.status) && <button onClick={() => advance(plan.id)} className="mt-4 text-sm font-bold text-cyan-600">推进状态 →</button>}</Panel>)}</div></>;
+  const { state, save } = usePortfolioData();
+  const [instrumentId, setInstrumentId] = useState(state.instruments[0]?.id ?? "");
+  const [direction, setDirection] = useState<"buy" | "sell" | "hold" | "reduce" | "observe">("observe");
+  const [targetPositionPct, setTargetPositionPct] = useState(0);
+  const [entryCondition, setEntryCondition] = useState("等待结构与数据确认");
+  const [invalidation, setInvalidation] = useState("核心假设失效");
+  const [validUntil, setValidUntil] = useState(new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10));
+  const [message, setMessage] = useState("");
+  const statusLabel: Record<AppState["tradePlans"][number]["status"], string> = { draft: "草稿", waiting: "等待条件", actionable: "待执行核验", partially_executed: "部分模拟执行", completed: "已完成", invalidated: "已失效", cancelled: "已取消" };
+  const directionLabel: Record<AppState["tradePlans"][number]["direction"], string> = { buy: "买入计划", sell: "卖出计划", hold: "持有计划", reduce: "减仓计划", observe: "观察计划" };
+  const transitionLabel: Partial<Record<AppState["tradePlans"][number]["status"], string>> = { waiting: "提交等待", actionable: "条件已满足", partially_executed: "记录部分模拟执行", completed: "标记完成", invalidated: "标记失效", cancelled: "取消计划" };
+
+  const add = async () => {
+    const instrument = state.instruments.find((item) => item.id === instrumentId);
+    if (!instrument || !entryCondition.trim() || !invalidation.trim() || !validUntil) return setMessage("请补齐标的、入场条件、失效条件和有效期。");
+    if (targetPositionPct < 0 || targetPositionPct > state.settings.maxSinglePositionPct) return setMessage(`目标仓位必须在 0% 到单标的上限 ${state.settings.maxSinglePositionPct}% 之间。`);
+    const now = new Date().toISOString();
+    await save((current) => ({ ...current, tradePlans: [...current.tradePlans, { id: id("plan"), instrumentId, market: instrument.market, direction, planType: direction === "reduce" || direction === "sell" ? "risk_reduction" : "swing", targetPositionPct, entryCondition: entryCondition.trim(), entryRange: "待核验", addCondition: "仅在原计划风险预算内", reduceCondition: "风险规则、止损或失效条件触发", stopLoss: null, takeProfit: null, invalidation: invalidation.trim(), catalysts: [], risks: ["执行前必须复核数据新鲜度与风险预算"], validUntil: new Date(`${validUntil}T23:59:59`).toISOString(), status: "draft", note: "不构成交易建议；仅用于计划约束。", createdAt: now, updatedAt: now }] }));
+    setMessage("计划草稿已保存。提交等待前请再次核对条件。 ");
+  };
+
+  const setStatus = async (planId: string, next: AppState["tradePlans"][number]["status"]) => {
+    try {
+      await save((current) => ({ ...current, tradePlans: current.tradePlans.map((plan) => plan.id === planId ? transitionTradePlan(plan, next) : plan) }));
+      setMessage(`计划已更新为“${statusLabel[next]}”。`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "计划状态更新失败。");
+    }
+  };
+
+  const orderedPlans = [...state.tradePlans].sort((a, b) => Number(["completed", "invalidated", "cancelled"].includes(a.status)) - Number(["completed", "invalidated", "cancelled"].includes(b.status)) || b.updatedAt.localeCompare(a.updatedAt));
+  return <><PageHeader title="交易计划" description="先写条件、风险与失效标准，再进入等待或模拟执行；状态变更受规则约束并保留更新时间。" action={<Link className={buttonClass} href="/plans/daily">每日流程</Link>} />
+    <Panel title="新建计划草稿" className="mb-4"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3"><label className="text-sm font-bold">标的<select className={`${inputClass} mt-1`} value={instrumentId} onChange={(e) => setInstrumentId(e.target.value)}>{state.instruments.map((item) => <option key={item.id} value={item.id}>{item.symbol} · {item.name}</option>)}</select></label><label className="text-sm font-bold">方向<select className={`${inputClass} mt-1`} value={direction} onChange={(e) => setDirection(e.target.value as typeof direction)}>{Object.entries(directionLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="text-sm font-bold">目标仓位（%）<input className={`${inputClass} mt-1`} type="number" min="0" max={state.settings.maxSinglePositionPct} value={targetPositionPct} onChange={(e) => setTargetPositionPct(Number(e.target.value))} /></label><label className="text-sm font-bold md:col-span-2">入场或行动条件<input className={`${inputClass} mt-1`} value={entryCondition} onChange={(e) => setEntryCondition(e.target.value)} /></label><label className="text-sm font-bold">有效期<input className={`${inputClass} mt-1`} type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} /></label><label className="text-sm font-bold md:col-span-2 xl:col-span-3">失效条件<input className={`${inputClass} mt-1`} value={invalidation} onChange={(e) => setInvalidation(e.target.value)} /></label></div><div className="mt-3 flex flex-wrap items-center gap-3"><button onClick={() => void add()} className={buttonClass}><Plus className="h-4 w-4" />保存计划草稿</button><p role="status" className="text-sm font-bold text-amber-700 dark:text-amber-300">{message}</p></div></Panel>
+    <div className="grid gap-4 lg:grid-cols-2">{orderedPlans.map((plan) => { const instrument = state.instruments.find((item) => item.id === plan.instrumentId); const expired = ["draft", "waiting", "actionable", "partially_executed"].includes(plan.status) && new Date(plan.validUntil).getTime() < Date.now(); const nextStatuses = (["waiting", "actionable", "partially_executed", "completed", "invalidated", "cancelled"] as const).filter((next) => canTransitionPlan(plan.status, next)); return <Panel key={plan.id}><div className="flex items-start justify-between gap-3"><div><p className="font-black">{instrument?.symbol ?? "未知标的"} · {directionLabel[plan.direction]}</p><p className="text-sm text-slate-500">{instrument?.name}</p></div><span className={`rounded-full px-2 py-1 text-xs font-bold ${expired ? "bg-red-100 text-red-700" : "bg-slate-100 dark:bg-slate-800"}`}>{expired ? "已过期" : statusLabel[plan.status]}</span></div><dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2"><div><dt className="text-xs text-slate-500">行动条件</dt><dd className="font-bold">{plan.entryCondition}</dd></div><div><dt className="text-xs text-slate-500">目标仓位</dt><dd className="font-bold">{plan.targetPositionPct}%</dd></div><div><dt className="text-xs text-slate-500">失效条件</dt><dd>{plan.invalidation}</dd></div><div><dt className="text-xs text-slate-500">有效期</dt><dd>{new Date(plan.validUntil).toLocaleDateString("zh-CN")}</dd></div></dl>{nextStatuses.length > 0 && <div className="mt-4 flex flex-wrap gap-2">{nextStatuses.filter((next) => !expired || ["invalidated", "cancelled"].includes(next)).map((next) => <button key={next} onClick={() => void setStatus(plan.id, next)} className={next === "invalidated" || next === "cancelled" ? "min-h-10 rounded-xl border px-3 text-sm font-bold text-slate-600 dark:border-slate-700 dark:text-slate-300" : "min-h-10 rounded-xl bg-cyan-600 px-3 text-sm font-bold text-white"}>{transitionLabel[next]}</button>)}</div>}<p className="mt-3 text-xs text-slate-500">更新于 {new Date(plan.updatedAt).toLocaleString("zh-CN")} · 只记录计划与模拟执行，不连接真实券商</p></Panel>; })}</div>
+  </>;
 }
 function DailyPage() {
   const { state, save } = usePortfolioData();
+  const mission = useMemo(() => buildMissionControl(state), [state]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const stages: Array<[string, string, string]> = [
@@ -176,6 +217,7 @@ function DailyPage() {
   return (
     <>
       <PageHeader title="每日作战流程" description="定时任务未配置密钥时保持手工模式；页面不会因此失效。" />
+      <Panel className="mb-4 !border-slate-900 !bg-slate-950 !text-white"><div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><p className="text-xs font-bold uppercase tracking-widest text-cyan-300">当前闸门 · {mission.statusLabel}</p><p className="mt-2 font-black">{mission.command}</p></div><Link href="/" className="text-sm font-bold text-cyan-300">处理 {mission.items.length} 项任务 →</Link></div></Panel>
       <Panel>
         <ol className="space-y-4">
           {stages.map(([time, title, detail]) => (
@@ -201,29 +243,41 @@ function DailyPage() {
   );
 }
 function RiskPage() {
-  const { state } = usePortfolioData(); const metrics = useMemo(() => calculatePortfolioMetrics(state), [state]); const stress = useMemo(() => runStressTests(state, metrics), [state, metrics]);
+  const { state, save } = usePortfolioData(); const metrics = useMemo(() => calculatePortfolioMetrics(state), [state]); const stress = useMemo(() => runStressTests(state, metrics), [state, metrics]);
   const warnings = [{ name: "总仓位", value: metrics.totalPositionPct, max: state.settings.maxTotalPositionPct }, { name: "最大单仓", value: metrics.largestHoldingPct, max: state.settings.maxSinglePositionPct }, { name: "科技暴露", value: metrics.technologyExposurePct, max: state.settings.maxTechnologyExposurePct }];
-  return <><PageHeader title="风险中心" description="集中度、相关性、汇率和压力测试均基于统一组合口径；缺失行情时明确标注估算。" /><div className="mb-4 grid gap-4 sm:grid-cols-3">{warnings.map((item) => <Panel key={item.name}><div className="flex justify-between"><b>{item.name}</b>{item.value > item.max ? <ShieldAlert className="text-red-600" /> : <CheckCircle2 className="text-emerald-600" />}</div><p className="mt-3 text-2xl font-black">{pct(item.value)}</p><p className="text-xs text-slate-500">规则上限 {item.max}%</p></Panel>)}</div><Panel title="压力测试"><div className="grid gap-3 lg:grid-cols-2">{stress.map((item) => <div key={item.id} className="rounded-xl border p-3"><div className="flex justify-between gap-3"><b>{item.name}</b><span className={item.severity === "high" ? "text-red-600" : "text-amber-600"}>{pct(item.impactPct)}</span></div><p className="text-sm text-slate-500">{money(item.impactAmount)} · {item.assumptions.join("；")}</p></div>)}</div></Panel></>;
+  const synchronize = () => save((current) => ({ ...current, alerts: synchronizeRiskAlerts(current) }));
+  const resolve = (alertId: string) => save((current) => ({ ...current, alerts: current.alerts.map((alert) => alert.id === alertId ? { ...alert, resolvedAt: new Date().toISOString() } : alert) }));
+  const activeAlerts = state.alerts.filter((alert) => alert.resolvedAt === null);
+  return <><PageHeader title="风险中心" description="集中度、相关性、汇率和压力测试均基于统一组合口径；缺失行情时明确标注估算。" action={<button className={buttonClass} onClick={() => void synchronize()}><RefreshCw className="h-4 w-4" />同步风险警报</button>} /><div className="mb-4 grid gap-4 sm:grid-cols-3">{warnings.map((item) => <Panel key={item.name}><div className="flex justify-between"><b>{item.name}</b>{item.value > item.max ? <ShieldAlert className="text-red-600" /> : <CheckCircle2 className="text-emerald-600" />}</div><p className="mt-3 text-2xl font-black">{pct(item.value)}</p><p className="text-xs text-slate-500">规则上限 {item.max}%</p></Panel>)}</div><Panel title={`未处理警报 · ${activeAlerts.length}`} className="mb-4">{activeAlerts.length ? <div className="space-y-3">{activeAlerts.map((alert) => <article key={alert.id} className={`rounded-xl border p-3 ${alert.severity === "critical" ? "border-red-300 bg-red-50 dark:bg-red-950/20" : "border-amber-300 bg-amber-50 dark:bg-amber-950/20"}`}><div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start"><div><p className="font-black">{alert.title}</p><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{alert.reason}</p><p className="mt-1 text-xs text-slate-500">处置要求：{alert.reviewAction}</p></div><button className="shrink-0 text-sm font-bold text-cyan-700 dark:text-cyan-300" onClick={() => void resolve(alert.id)}>确认已处理</button></div></article>)}</div> : <p className="text-sm text-slate-500">暂无已同步的未处理警报。点击“同步风险警报”按当前组合和启用规则生成审计记录。</p>}</Panel><Panel title="压力测试"><div className="grid gap-3 lg:grid-cols-2">{stress.map((item) => <div key={item.id} className="rounded-xl border p-3"><div className="flex justify-between gap-3"><b>{item.name}</b><span className={item.severity === "high" ? "text-red-600" : "text-amber-600"}>{pct(item.impactPct)}</span></div><p className="text-sm text-slate-500">{money(item.impactAmount)} · {item.assumptions.join("；")}</p></div>)}</div></Panel></>;
 }
 function JournalPage() {
   const { state, save } = usePortfolioData();
   const [note, setNote] = useState("");
+  const [instrumentId, setInstrumentId] = useState(state.instruments[0]?.id ?? "");
+  const [planId, setPlanId] = useState("");
+  const [actualAction, setActualAction] = useState("观察");
+  const [followedPlan, setFollowedPlan] = useState(true);
+  const [processQuality, setProcessQuality] = useState<"correct" | "incorrect">("correct");
+  const [resultQuality, setResultQuality] = useState<"profit" | "loss" | "flat">("flat");
+  const [lesson, setLesson] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
   const add = () => {
-    const instrument = state.instruments[0];
+    const instrument = state.instruments.find((item) => item.id === instrumentId);
+    const plan = state.tradePlans.find((item) => item.id === planId);
     if (!instrument || !note.trim()) return;
     void save((current) => ({
       ...current,
       journalEntries: [...current.journalEntries, {
-        id: id("journal"), instrumentId: instrument.id, planId: null, originalThesis: note,
-        plannedAction: "观察", actualAction: "观察", executedAt: new Date().toISOString(), price: 0, quantity: 0, pnl: 0,
-        followedPlan: true, processQuality: "correct", resultQuality: "flat", strengths: ["记录及时"], mistakes: [],
-        emotion: "平静", lessons: [], nextRules: [], attachmentRefs: [],
+        id: id("journal"), instrumentId: instrument.id, planId: plan?.id ?? null, originalThesis: note.trim(),
+        plannedAction: plan?.entryCondition ?? "观察", actualAction: actualAction.trim() || "观察", executedAt: new Date().toISOString(), price: 0, quantity: 0, pnl: 0,
+        followedPlan, processQuality, resultQuality, strengths: followedPlan ? ["按计划执行并及时记录"] : [], mistakes: followedPlan ? [] : ["执行偏离计划"],
+        emotion: "待补充", lessons: lesson.trim() ? [lesson.trim()] : [], nextRules: lesson.trim() ? [lesson.trim()] : [], attachmentRefs: [],
       }],
     }));
     setNote("");
+    setLesson("");
   };
 
   const generate = async (type: "daily" | "weekly" | "monthly") => {
@@ -248,7 +302,10 @@ function JournalPage() {
       <PageHeader title="复盘日志" description="分开记录过程质量和结果质量，避免只以盈亏评价决策。" />
       <div className="grid gap-4 lg:grid-cols-[1fr_1.5fr]">
         <Panel title="快速记录">
-          <textarea className={`${inputClass} min-h-32 py-3`} placeholder="原始判断、执行偏差或新规则…" value={note} onChange={(e) => setNote(e.target.value)} />
+          <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-bold">标的<select aria-label="复盘标的" className={`${inputClass} mt-1`} value={instrumentId} onChange={(e) => { setInstrumentId(e.target.value); setPlanId(""); }}>{state.instruments.map((item) => <option key={item.id} value={item.id}>{item.symbol} · {item.name}</option>)}</select></label><label className="text-sm font-bold">关联计划<select aria-label="关联计划" className={`${inputClass} mt-1`} value={planId} onChange={(e) => setPlanId(e.target.value)}><option value="">未关联计划</option>{state.tradePlans.filter((plan) => plan.instrumentId === instrumentId).map((plan) => <option key={plan.id} value={plan.id}>{plan.entryCondition} · {plan.status}</option>)}</select></label><label className="text-sm font-bold sm:col-span-2">实际行动<input aria-label="实际行动" className={`${inputClass} mt-1`} value={actualAction} onChange={(e) => setActualAction(e.target.value)} /></label><label className="text-sm font-bold">过程质量<select aria-label="过程质量" className={`${inputClass} mt-1`} value={processQuality} onChange={(e) => setProcessQuality(e.target.value as typeof processQuality)}><option value="correct">过程正确</option><option value="incorrect">过程有误</option></select></label><label className="text-sm font-bold">结果质量<select aria-label="结果质量" className={`${inputClass} mt-1`} value={resultQuality} onChange={(e) => setResultQuality(e.target.value as typeof resultQuality)}><option value="profit">盈利</option><option value="loss">亏损</option><option value="flat">持平/未验证</option></select></label></div>
+          <label className="mt-3 block text-sm font-bold">原始判断<textarea className={`${inputClass} mt-1 min-h-28 py-3`} placeholder="当时看到了什么、依据是什么…" value={note} onChange={(e) => setNote(e.target.value)} /></label>
+          <label className="mt-3 block text-sm font-bold">经验或下次规则<input className={`${inputClass} mt-1`} placeholder="可选" value={lesson} onChange={(e) => setLesson(e.target.value)} /></label>
+          <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={followedPlan} onChange={(e) => setFollowedPlan(e.target.checked)} />本次行动遵守了关联计划</label>
           <button className={`${buttonClass} mt-3`} onClick={add}>保存复盘</button>
         </Panel>
         <Panel title="历史记录">
@@ -257,7 +314,7 @@ function JournalPage() {
               <article key={entry.id} className="rounded-xl border p-3">
                 <div className="flex justify-between"><b>{state.instruments.find((item) => item.id === entry.instrumentId)?.symbol}</b><time className="text-xs text-slate-500">{new Date(entry.executedAt).toLocaleString("zh-CN")}</time></div>
                 <p className="mt-2 text-sm">{entry.originalThesis}</p>
-                <p className="mt-2 text-xs text-slate-500">过程：{entry.processQuality} · 结果：{entry.resultQuality}{entry.lessons.length ? ` · 教训：${entry.lessons.join("、")}` : ""}</p>
+                <p className="mt-2 text-xs text-slate-500">行动：{entry.actualAction} · {entry.followedPlan ? "遵守计划" : "偏离计划"} · 过程：{entry.processQuality} · 结果：{entry.resultQuality}{entry.lessons.length ? ` · 教训：${entry.lessons.join("、")}` : ""}</p>
               </article>
             )) : <p className="text-sm text-slate-500">还没有复盘记录。</p>}
           </div>
