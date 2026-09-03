@@ -45,4 +45,4 @@ npm run test:e2e
 
 数据库和日志位于`.local-private/`。升级只执行新增迁移，不清库。Git回滚到接管基线：`git switch --detach 1663cff0e5427d84cad34435219cf5c90e35838e`；恢复当前分支：`git switch codex/ocr-name-match-layout`。不要在有未提交私人数据时执行破坏性重置。
 
-前向模拟盘的Hermes cron只有在远程备份、真实数据、Paper Broker、幂等性和飞书真实发送全部通过后才能创建。本次飞书缺少应用发送权限且竞价委托簿缺失，因此所有量化cron保持关闭。
+股票平台的发布与核心 Paper 流程不依赖飞书。前向模拟盘的 Hermes cron 只有在远程备份、真实数据、Paper Broker 和幂等性全部通过后才能创建；只有选择启用飞书通知时，通知任务才额外要求真实发送验收。本次竞价委托簿缺失，因此所有量化 cron 保持关闭。

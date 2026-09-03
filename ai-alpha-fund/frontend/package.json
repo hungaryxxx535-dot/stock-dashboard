@@ -1,7 +1,0 @@
-{
-  "name":"ai-alpha-fund-dashboard",
-  "version":"1.0.0",
-  "scripts":{"dev":"vite","build":"vite build"},
-  "dependencies":{"react":"latest","react-dom":"latest","recharts":"latest"},
-  "devDependencies":{"vite":"latest"}
-}
