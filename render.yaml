@@ -18,7 +18,7 @@ services:
   - type: web
     name: fei-stock-dashboard
     runtime: node
-    branch: codex/ocr-name-match-layout
+    branch: main
     plan: free
     buildCommand: npm ci && npm run build
     startCommand: npm run start
