@@ -78,7 +78,7 @@ export function buildMissionControl(state: AppState, now = new Date()): MissionC
     }
   }
 
-  for (const alert of state.alerts.filter((item) => item.resolvedAt === null)) {
+  for (const alert of state.alerts.filter((item) => item.resolvedAt === null && !item.id.startsWith("rule-"))) {
     items.push({ id: `alert-${alert.id}`, severity: alert.severity === "critical" ? "critical" : alert.severity === "warning" ? "warning" : "info", title: alert.title, reason: alert.reason, actionLabel: "查看风险", href: alert.planId ? "/plans" : "/risk", source: "alert" });
   }
 

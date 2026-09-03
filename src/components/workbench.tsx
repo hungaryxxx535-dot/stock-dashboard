@@ -6,6 +6,7 @@ import { ArrowRight, CheckCircle2, Database, Download, Loader2, Plus, RefreshCw,
 import { usePortfolioData } from "@/components/data-provider";
 import { PortfolioScreenshotImportV2 } from "@/components/portfolio-screenshot-import-v2";
 import { calculatePortfolioMetrics, runStressTests } from "@/domain/engines/portfolio-risk-engine";
+import { synchronizeRiskAlerts } from "@/domain/engines/risk-alert-engine";
 import { buildMissionControl, type MissionSeverity } from "@/domain/engines/mission-control-engine";
 import { buildPeriodReview } from "@/domain/engines/review-engine";
 import { canTransitionPlan, transitionTradePlan } from "@/domain/engines/trade-plan-engine";
@@ -242,29 +243,41 @@ function DailyPage() {
   );
 }
 function RiskPage() {
-  const { state } = usePortfolioData(); const metrics = useMemo(() => calculatePortfolioMetrics(state), [state]); const stress = useMemo(() => runStressTests(state, metrics), [state, metrics]);
+  const { state, save } = usePortfolioData(); const metrics = useMemo(() => calculatePortfolioMetrics(state), [state]); const stress = useMemo(() => runStressTests(state, metrics), [state, metrics]);
   const warnings = [{ name: "总仓位", value: metrics.totalPositionPct, max: state.settings.maxTotalPositionPct }, { name: "最大单仓", value: metrics.largestHoldingPct, max: state.settings.maxSinglePositionPct }, { name: "科技暴露", value: metrics.technologyExposurePct, max: state.settings.maxTechnologyExposurePct }];
-  return <><PageHeader title="风险中心" description="集中度、相关性、汇率和压力测试均基于统一组合口径；缺失行情时明确标注估算。" /><div className="mb-4 grid gap-4 sm:grid-cols-3">{warnings.map((item) => <Panel key={item.name}><div className="flex justify-between"><b>{item.name}</b>{item.value > item.max ? <ShieldAlert className="text-red-600" /> : <CheckCircle2 className="text-emerald-600" />}</div><p className="mt-3 text-2xl font-black">{pct(item.value)}</p><p className="text-xs text-slate-500">规则上限 {item.max}%</p></Panel>)}</div><Panel title="压力测试"><div className="grid gap-3 lg:grid-cols-2">{stress.map((item) => <div key={item.id} className="rounded-xl border p-3"><div className="flex justify-between gap-3"><b>{item.name}</b><span className={item.severity === "high" ? "text-red-600" : "text-amber-600"}>{pct(item.impactPct)}</span></div><p className="text-sm text-slate-500">{money(item.impactAmount)} · {item.assumptions.join("；")}</p></div>)}</div></Panel></>;
+  const synchronize = () => save((current) => ({ ...current, alerts: synchronizeRiskAlerts(current) }));
+  const resolve = (alertId: string) => save((current) => ({ ...current, alerts: current.alerts.map((alert) => alert.id === alertId ? { ...alert, resolvedAt: new Date().toISOString() } : alert) }));
+  const activeAlerts = state.alerts.filter((alert) => alert.resolvedAt === null);
+  return <><PageHeader title="风险中心" description="集中度、相关性、汇率和压力测试均基于统一组合口径；缺失行情时明确标注估算。" action={<button className={buttonClass} onClick={() => void synchronize()}><RefreshCw className="h-4 w-4" />同步风险警报</button>} /><div className="mb-4 grid gap-4 sm:grid-cols-3">{warnings.map((item) => <Panel key={item.name}><div className="flex justify-between"><b>{item.name}</b>{item.value > item.max ? <ShieldAlert className="text-red-600" /> : <CheckCircle2 className="text-emerald-600" />}</div><p className="mt-3 text-2xl font-black">{pct(item.value)}</p><p className="text-xs text-slate-500">规则上限 {item.max}%</p></Panel>)}</div><Panel title={`未处理警报 · ${activeAlerts.length}`} className="mb-4">{activeAlerts.length ? <div className="space-y-3">{activeAlerts.map((alert) => <article key={alert.id} className={`rounded-xl border p-3 ${alert.severity === "critical" ? "border-red-300 bg-red-50 dark:bg-red-950/20" : "border-amber-300 bg-amber-50 dark:bg-amber-950/20"}`}><div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start"><div><p className="font-black">{alert.title}</p><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{alert.reason}</p><p className="mt-1 text-xs text-slate-500">处置要求：{alert.reviewAction}</p></div><button className="shrink-0 text-sm font-bold text-cyan-700 dark:text-cyan-300" onClick={() => void resolve(alert.id)}>确认已处理</button></div></article>)}</div> : <p className="text-sm text-slate-500">暂无已同步的未处理警报。点击“同步风险警报”按当前组合和启用规则生成审计记录。</p>}</Panel><Panel title="压力测试"><div className="grid gap-3 lg:grid-cols-2">{stress.map((item) => <div key={item.id} className="rounded-xl border p-3"><div className="flex justify-between gap-3"><b>{item.name}</b><span className={item.severity === "high" ? "text-red-600" : "text-amber-600"}>{pct(item.impactPct)}</span></div><p className="text-sm text-slate-500">{money(item.impactAmount)} · {item.assumptions.join("；")}</p></div>)}</div></Panel></>;
 }
 function JournalPage() {
   const { state, save } = usePortfolioData();
   const [note, setNote] = useState("");
+  const [instrumentId, setInstrumentId] = useState(state.instruments[0]?.id ?? "");
+  const [planId, setPlanId] = useState("");
+  const [actualAction, setActualAction] = useState("观察");
+  const [followedPlan, setFollowedPlan] = useState(true);
+  const [processQuality, setProcessQuality] = useState<"correct" | "incorrect">("correct");
+  const [resultQuality, setResultQuality] = useState<"profit" | "loss" | "flat">("flat");
+  const [lesson, setLesson] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
   const add = () => {
-    const instrument = state.instruments[0];
+    const instrument = state.instruments.find((item) => item.id === instrumentId);
+    const plan = state.tradePlans.find((item) => item.id === planId);
     if (!instrument || !note.trim()) return;
     void save((current) => ({
       ...current,
       journalEntries: [...current.journalEntries, {
-        id: id("journal"), instrumentId: instrument.id, planId: null, originalThesis: note,
-        plannedAction: "观察", actualAction: "观察", executedAt: new Date().toISOString(), price: 0, quantity: 0, pnl: 0,
-        followedPlan: true, processQuality: "correct", resultQuality: "flat", strengths: ["记录及时"], mistakes: [],
-        emotion: "平静", lessons: [], nextRules: [], attachmentRefs: [],
+        id: id("journal"), instrumentId: instrument.id, planId: plan?.id ?? null, originalThesis: note.trim(),
+        plannedAction: plan?.entryCondition ?? "观察", actualAction: actualAction.trim() || "观察", executedAt: new Date().toISOString(), price: 0, quantity: 0, pnl: 0,
+        followedPlan, processQuality, resultQuality, strengths: followedPlan ? ["按计划执行并及时记录"] : [], mistakes: followedPlan ? [] : ["执行偏离计划"],
+        emotion: "待补充", lessons: lesson.trim() ? [lesson.trim()] : [], nextRules: lesson.trim() ? [lesson.trim()] : [], attachmentRefs: [],
       }],
     }));
     setNote("");
+    setLesson("");
   };
 
   const generate = async (type: "daily" | "weekly" | "monthly") => {
@@ -289,7 +302,10 @@ function JournalPage() {
       <PageHeader title="复盘日志" description="分开记录过程质量和结果质量，避免只以盈亏评价决策。" />
       <div className="grid gap-4 lg:grid-cols-[1fr_1.5fr]">
         <Panel title="快速记录">
-          <textarea className={`${inputClass} min-h-32 py-3`} placeholder="原始判断、执行偏差或新规则…" value={note} onChange={(e) => setNote(e.target.value)} />
+          <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-bold">标的<select aria-label="复盘标的" className={`${inputClass} mt-1`} value={instrumentId} onChange={(e) => { setInstrumentId(e.target.value); setPlanId(""); }}>{state.instruments.map((item) => <option key={item.id} value={item.id}>{item.symbol} · {item.name}</option>)}</select></label><label className="text-sm font-bold">关联计划<select aria-label="关联计划" className={`${inputClass} mt-1`} value={planId} onChange={(e) => setPlanId(e.target.value)}><option value="">未关联计划</option>{state.tradePlans.filter((plan) => plan.instrumentId === instrumentId).map((plan) => <option key={plan.id} value={plan.id}>{plan.entryCondition} · {plan.status}</option>)}</select></label><label className="text-sm font-bold sm:col-span-2">实际行动<input aria-label="实际行动" className={`${inputClass} mt-1`} value={actualAction} onChange={(e) => setActualAction(e.target.value)} /></label><label className="text-sm font-bold">过程质量<select aria-label="过程质量" className={`${inputClass} mt-1`} value={processQuality} onChange={(e) => setProcessQuality(e.target.value as typeof processQuality)}><option value="correct">过程正确</option><option value="incorrect">过程有误</option></select></label><label className="text-sm font-bold">结果质量<select aria-label="结果质量" className={`${inputClass} mt-1`} value={resultQuality} onChange={(e) => setResultQuality(e.target.value as typeof resultQuality)}><option value="profit">盈利</option><option value="loss">亏损</option><option value="flat">持平/未验证</option></select></label></div>
+          <label className="mt-3 block text-sm font-bold">原始判断<textarea className={`${inputClass} mt-1 min-h-28 py-3`} placeholder="当时看到了什么、依据是什么…" value={note} onChange={(e) => setNote(e.target.value)} /></label>
+          <label className="mt-3 block text-sm font-bold">经验或下次规则<input className={`${inputClass} mt-1`} placeholder="可选" value={lesson} onChange={(e) => setLesson(e.target.value)} /></label>
+          <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={followedPlan} onChange={(e) => setFollowedPlan(e.target.checked)} />本次行动遵守了关联计划</label>
           <button className={`${buttonClass} mt-3`} onClick={add}>保存复盘</button>
         </Panel>
         <Panel title="历史记录">
@@ -298,7 +314,7 @@ function JournalPage() {
               <article key={entry.id} className="rounded-xl border p-3">
                 <div className="flex justify-between"><b>{state.instruments.find((item) => item.id === entry.instrumentId)?.symbol}</b><time className="text-xs text-slate-500">{new Date(entry.executedAt).toLocaleString("zh-CN")}</time></div>
                 <p className="mt-2 text-sm">{entry.originalThesis}</p>
-                <p className="mt-2 text-xs text-slate-500">过程：{entry.processQuality} · 结果：{entry.resultQuality}{entry.lessons.length ? ` · 教训：${entry.lessons.join("、")}` : ""}</p>
+                <p className="mt-2 text-xs text-slate-500">行动：{entry.actualAction} · {entry.followedPlan ? "遵守计划" : "偏离计划"} · 过程：{entry.processQuality} · 结果：{entry.resultQuality}{entry.lessons.length ? ` · 教训：${entry.lessons.join("、")}` : ""}</p>
               </article>
             )) : <p className="text-sm text-slate-500">还没有复盘记录。</p>}
           </div>

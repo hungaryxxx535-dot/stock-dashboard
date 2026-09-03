@@ -10,4 +10,6 @@ GET端点：`/health`、`/system/status`、`/market/regime`、`/paper/account`�
 
 POST端点：`/candidates/premarket`、`/candidates/auction-review`、`/paper/orders`、`/paper/orders/{id}/cancel`、`/strategies/{id}/pause`、`/strategies/{id}/resume`。
 
+前端通过同源服务端路由 `/api/paper/status`、`/api/paper/orders` 和 `/api/paper/orders/{id}/cancel` 访问量化核心。Bearer Token 只在 Next.js 服务端读取，不发送到浏览器；上游地址强制为 HTTP 回环地址，非 `paper` 环境响应会被拒绝。
+
 系统没有真实券商端点。09:25接口在没有真实竞价数据时返回明确错误；盘前接口允许返回0只，不会强行凑数。
