@@ -27,6 +27,24 @@ const freshDemoState = (): AppState => {
   return AppStateSchema.parse({ ...structuredClone(demoState), initializedAt: now, updatedAt: now });
 };
 
+async function loadCloudPortfolio(): Promise<AppState | null> {
+  const response = await fetch("/api/portfolio-cloud", { cache: "no-store" });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`cloud portfolio request failed: ${response.status}`);
+  const body = await response.json() as { available?: boolean; token?: unknown };
+  if (!body.available || typeof body.token !== "string") throw new Error("cloud portfolio response is invalid");
+  const decoded = decodePortfolioShare(body.token);
+  const now = new Date().toISOString();
+  return AppStateSchema.parse({
+    ...decoded,
+    mode: "cloud",
+    updatedAt: now,
+    dataVersions: decoded.dataVersions.map((version) => ({ ...version, label: "Render 云端持仓", reason: "从云端公开快照同步", source: "import" as const })),
+    dataSourceStatuses: decoded.dataSourceStatuses.map((source) => ({ ...source, id: "render-cloud", name: "Render 云端持仓", source: "Render 环境变量", message: `${decoded.holdings.length} 项持仓已从云端同步` })),
+    settings: { ...decoded.settings, cloudSync: "connected", updatedAt: now },
+  });
+}
+
 export function DataProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(freshDemoState);
   const current = useRef(state);
@@ -50,8 +68,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
         }
       } else if (token && stored?.mode !== "demo") {
         setError("当前浏览器已有私有持仓，未使用分享链接覆盖。请先导出备份，或在新设备中打开该链接。");
-      } else if (!stored) {
-        await repository.save(next);
+      } else {
+        try {
+          const cloud = await loadCloudPortfolio();
+          if (cloud) next = cloud;
+        } catch {
+          setError("云端持仓暂时不可用，当前显示本机最近一次数据。");
+        }
+        if (!stored || next !== stored) await repository.save(next);
       }
       current.current = next; setState(next);
       setLegacyAvailable(hasLegacyBrowserData(window.localStorage));
