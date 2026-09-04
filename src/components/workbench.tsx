@@ -343,10 +343,12 @@ function JournalPage() {
   };
 
   const reviews = [...state.reviews].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const latestAutomatic = reviews.find((review) => review.id.startsWith("auto-"));
 
   return (
     <>
       <PageHeader title="复盘日志" description="分开记录过程质量和结果质量，避免只以盈亏评价决策。" />
+      <Panel className="mb-4 !border-emerald-300 !bg-emerald-50 dark:!border-emerald-900 dark:!bg-emerald-950/20"><div className="flex items-start gap-3"><CheckCircle2 className="mt-0.5 shrink-0 text-emerald-600" /><div><p className="font-black">全自动复盘已开启</p><p className="mt-1 text-sm text-emerald-800 dark:text-emerald-200">收盘后页面保持打开，或下次打开平台时，自动补生成日复盘；周五同时生成周复盘，月末同时生成月复盘。固定日期只生成一次。</p><p className="mt-2 text-xs text-slate-500">{latestAutomatic ? `最近自动生成：${latestAutomatic.title}` : "首次自动报告将在最近一个已收盘交易日生成；主观心得可选填。"}</p></div></div></Panel>
       <div className="grid gap-4 lg:grid-cols-[1fr_1.5fr]">
         <Panel title="快速记录">
           <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-bold">标的<select aria-label="复盘标的" className={`${inputClass} mt-1`} value={instrumentId} onChange={(e) => { setInstrumentId(e.target.value); setPlanId(""); }}>{state.instruments.map((item) => <option key={item.id} value={item.id}>{item.symbol} · {item.name}</option>)}</select></label><label className="text-sm font-bold">关联计划<select aria-label="关联计划" className={`${inputClass} mt-1`} value={planId} onChange={(e) => setPlanId(e.target.value)}><option value="">未关联计划</option>{state.tradePlans.filter((plan) => plan.instrumentId === instrumentId).map((plan) => <option key={plan.id} value={plan.id}>{plan.entryCondition} · {plan.status}</option>)}</select></label><label className="text-sm font-bold sm:col-span-2">实际行动<input aria-label="实际行动" className={`${inputClass} mt-1`} value={actualAction} onChange={(e) => setActualAction(e.target.value)} /></label><label className="text-sm font-bold">过程质量<select aria-label="过程质量" className={`${inputClass} mt-1`} value={processQuality} onChange={(e) => setProcessQuality(e.target.value as typeof processQuality)}><option value="correct">过程正确</option><option value="incorrect">过程有误</option></select></label><label className="text-sm font-bold">结果质量<select aria-label="结果质量" className={`${inputClass} mt-1`} value={resultQuality} onChange={(e) => setResultQuality(e.target.value as typeof resultQuality)}><option value="profit">盈利</option><option value="loss">亏损</option><option value="flat">持平/未验证</option></select></label></div>
@@ -367,8 +369,8 @@ function JournalPage() {
           </div>
         </Panel>
       </div>
-      <Panel title="自动周/月复盘" className="mt-4">
-        <p className="mb-3 text-sm text-slate-500">根据导入快照、当前持仓与行情、计划状态和复盘日志自动生成；所有估算和缺失都会在报告里注明。</p>
+      <Panel title="自动复盘报告" className="mt-4">
+        <p className="mb-3 text-sm text-slate-500">系统会自动生成；以下按钮只用于临时补做或立即预览。报告根据快照、当前持仓与行情、计划状态和可选日志生成，所有估算和缺失都会注明。</p>
         <div className="flex flex-wrap gap-2">
           <button className={buttonClass} disabled={busy} onClick={() => void generate("daily")}><RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />生成日复盘</button>
           <button className={buttonClass} disabled={busy} onClick={() => void generate("weekly")}><RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />生成周复盘</button>

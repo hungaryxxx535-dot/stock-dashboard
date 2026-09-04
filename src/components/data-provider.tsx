@@ -10,6 +10,9 @@ import type { PortfolioRepository } from "@/lib/storage/repository";
 import { isSupabaseConfigured, SupabasePortfolioRepository } from "@/lib/storage/supabase-adapter";
 import { decodePortfolioShare } from "@/lib/portfolio-share";
 import { buildPortfolioQuoteTargets, mergePortfolioQuotes, type PortfolioQuoteResponse } from "@/lib/portfolio-quotes";
+import { loadMarketSummary } from "@/lib/market-summary";
+import { generateDueAutomaticReviews } from "@/lib/automatic-reviews";
+import { mergeCloudPortfolioWithLocal } from "@/lib/cloud-portfolio-merge";
 
 type DataContextValue = {
   state: AppState; ready: boolean; error: string; legacyAvailable: boolean;
@@ -63,6 +66,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [legacyAvailable, setLegacyAvailable] = useState(false);
+  const automaticReviewBusy = useRef(false);
   useEffect(() => { current.current = state; }, [state]);
   useEffect(() => {
     let active = true;
@@ -84,15 +88,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
         try {
           const cloud = await loadCloudPortfolio();
           if (cloud) {
-            next = cloud;
+            next = mergeCloudPortfolioWithLocal(cloud, stored);
             try {
-              next = await loadLatestPortfolioQuotes(cloud);
+              next = await loadLatestPortfolioQuotes(next);
             } catch {
               setError("云端持仓已同步；公开行情暂时不可用，当前保留截图快照价格。");
             }
           }
         } catch {
           setError("云端持仓暂时不可用，当前显示本机最近一次数据。");
+        }
+        if (next.mode !== "demo") {
+          const marketSummary = await loadMarketSummary().catch(() => ({ summary: "市场摘要读取失败", notes: ["自动复盘保留，市场环境部分降级。"], source: "" }));
+          next = generateDueAutomaticReviews(next, new Date(), marketSummary).state;
         }
         if (!stored || next !== stored) await repository.save(next);
       }
@@ -135,6 +143,26 @@ export function DataProvider({ children }: { children: ReactNode }) {
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", refreshWhenVisible); };
   }, [ready, state.mode, refreshQuotes]);
+  useEffect(() => {
+    if (!ready || state.mode === "demo") return;
+    const run = async () => {
+      if (automaticReviewBusy.current) return;
+      automaticReviewBusy.current = true;
+      try {
+        const marketSummary = await loadMarketSummary().catch(() => ({ summary: "市场摘要读取失败", notes: ["自动复盘保留，市场环境部分降级。"], source: "" }));
+        const result = generateDueAutomaticReviews(current.current, new Date(), marketSummary);
+        if (result.generated.length) {
+          await repository.save(result.state);
+          current.current = result.state;
+          setState(result.state);
+        }
+      } finally { automaticReviewBusy.current = false; }
+    };
+    const whenVisible = () => { if (document.visibilityState === "visible") void run(); };
+    const timer = window.setInterval(() => void run(), 300_000);
+    document.addEventListener("visibilitychange", whenVisible);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", whenVisible); };
+  }, [ready, state.mode]);
   const value = useMemo(() => ({ state, ready, error, legacyAvailable, save, replace, migrateLegacy, exportBackup, importBackup, restoreSnapshot, resetDemo, refreshQuotes }), [state, ready, error, legacyAvailable, save, replace, migrateLegacy, exportBackup, importBackup, restoreSnapshot, resetDemo, refreshQuotes]);
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 }
