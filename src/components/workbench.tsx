@@ -17,6 +17,7 @@ import { isSupabaseConfigured } from "@/lib/storage/supabase-adapter";
 import { createPortfolioShareUrl } from "@/lib/portfolio-share";
 import { describeQuote } from "@/lib/quote-provenance";
 import { calculateResearchCompleteness } from "@/lib/research-completeness";
+import type { ResearchProfileResponse } from "@/lib/research-profile";
 
 type View = "home" | "portfolio" | "import" | "market" | "research" | "watchlist" | "plans" | "daily" | "risk" | "journal" | "settings";
 const money = (value: number) => new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(value);
@@ -139,7 +140,30 @@ function MarketPage() {
 
 function ResearchPage() {
   const { state } = usePortfolioData();
-  return <><PageHeader title="研究中心" description="完整度由行情、分类、正反证据和失效条件逐项计算；缺什么就明确显示什么，不用统一占位提示。" action={<Link href="/research/watchlist" className={buttonClass}>观察池</Link>} /><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{state.instruments.map((item) => { const completeness = calculateResearchCompleteness(state, item); return <Link key={item.id} href={`/research/${encodeURIComponent(item.symbol)}`}><Panel className="h-full transition hover:-translate-y-1"><p className="text-xs text-slate-500">{item.market} · {item.assetType}</p><div className="mt-2 flex items-start justify-between gap-3"><div><h2 className="text-xl font-black">{item.symbol}</h2><p className="text-sm text-slate-500">{item.name}</p></div><span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-black dark:bg-slate-800">{completeness.score}%</span></div><div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"><div className={`h-full ${completeness.score >= 60 ? "bg-emerald-500" : completeness.score >= 40 ? "bg-amber-500" : "bg-orange-500"}`} style={{ width: `${completeness.score}%` }} /></div><p className="mt-2 text-sm font-bold text-amber-700">{completeness.status} →</p><p className="mt-1 line-clamp-2 text-xs text-slate-500">待补：{completeness.missing.slice(0, 3).join("、") || "无"}</p></Panel></Link>; })}</div></>;
+  const [profiles, setProfiles] = useState<Record<string, ResearchProfileResponse>>({});
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const supported = state.instruments.filter((item) => ["CN", "HK", "US"].includes(item.market));
+    void Promise.allSettled(supported.map(async (item) => {
+      const query = new URLSearchParams({ market: item.market, symbol: item.symbol, name: item.name });
+      const response = await fetch(`/api/research-profile?${query}`, { cache: "no-store", signal: controller.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await response.json() as ResearchProfileResponse;
+      if (!controller.signal.aborted) setProfiles((current) => ({ ...current, [item.id]: payload }));
+    }));
+    return () => controller.abort();
+  }, [state.instruments]);
+
+  return <><PageHeader title="研究中心" description="基础数据覆盖由行情、证券资料与近期资讯计算；研究结论完整度仍严格检查正反证据和失效条件。" action={<Link href="/research/watchlist" className={buttonClass}>观察池</Link>} /><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{state.instruments.map((item) => {
+    const completeness = calculateResearchCompleteness(state, item);
+    const remote = profiles[item.id];
+    const hasClassification = Boolean(remote?.profile?.sector || remote?.profile?.industry);
+    const coverage = Math.min(100, completeness.score + (hasClassification && completeness.missing.includes("行业与风格分类") ? 10 : 0) + (remote?.news.length ? 10 : 0));
+    const missing = completeness.missing.filter((label) => label !== "行业与风格分类" || !hasClassification);
+    const dataLabel = remote ? remote.status === "updated" ? "公开资料已更新" : remote.status === "partial" ? "部分公开资料可用" : "公开资料读取失败" : "正在核验公开资料";
+    return <Link key={item.id} href={`/research/${encodeURIComponent(item.symbol)}`}><Panel className="h-full transition hover:-translate-y-1"><p className="text-xs text-slate-500">{item.market} · {item.assetType}</p><div className="mt-2 flex items-start justify-between gap-3"><div><h2 className="text-xl font-black">{item.symbol}</h2><p className="text-sm text-slate-500">{item.name}</p></div><span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-black dark:bg-slate-800">{coverage}%</span></div><div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"><div className={`h-full ${coverage >= 60 ? "bg-emerald-500" : coverage >= 40 ? "bg-amber-500" : "bg-orange-500"}`} style={{ width: `${coverage}%` }} /></div><p className={`mt-2 text-sm font-bold ${remote?.status === "updated" ? "text-emerald-700" : "text-amber-700"}`}>{dataLabel} →</p><p className="mt-1 line-clamp-2 text-xs text-slate-500">研究待补：{missing.slice(0, 3).join("、") || "无关键缺口"}</p></Panel></Link>;
+  })}</div></>;
 }
 function WatchlistPage() {
   const { state } = usePortfolioData();
