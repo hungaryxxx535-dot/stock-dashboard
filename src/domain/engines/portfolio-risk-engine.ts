@@ -3,6 +3,7 @@ import type { AppState, Holding, Instrument, Quote } from "@/domain/model";
 export type HoldingValuation = { holding: Holding; instrument: Instrument; quote: Quote | null; valueBase: number; costBase: number; pnlBase: number; estimated: boolean };
 export type PortfolioMetrics = { totalAssets: number; investedValue: number; cashValue: number; totalPositionPct: number; brokerPositionPct: number; aSharePositionPct: number; usPositionPct: number; largestHoldingPct: number; topThreePct: number; technologyExposurePct: number; defensiveExposurePct: number; currencyExposure: Record<string, number>; valuations: HoldingValuation[]; dataConfidence: number };
 export type StressScenario = { id: string; name: string; impactAmount: number; impactPct: number; severity: "low" | "medium" | "high"; assumptions: string[] };
+export type RiskAction = { id: string; priority: "high" | "medium" | "info"; title: string; reason: string; action: string; amount: number | null; instrumentId: string | null };
 
 const fx = (state: AppState, currency: string) => state.settings.exchangeRates[currency as "CNY" | "USD" | "HKD"] ?? 1;
 export function calculatePortfolioMetrics(state: AppState): PortfolioMetrics {
@@ -61,4 +62,25 @@ export function runStressTests(state: AppState, metrics = calculatePortfolioMetr
     make("vix", "VIX 急升", -metrics.investedValue * .06, ["风险资产统一估算 -6%"]),
     make("rates", "美债利率快速上升", -(usTech * .08 + cnTech * .03), ["美股科技 -8%", "A 股科技 -3%"]),
   ];
+}
+
+export function buildRiskActions(state: AppState, metrics = calculatePortfolioMetrics(state)): RiskAction[] {
+  const actions: RiskAction[] = [];
+  const totalLimit = metrics.totalAssets * state.settings.maxTotalPositionPct / 100;
+  if (metrics.investedValue > totalLimit) {
+    actions.push({ id: "total-position", priority: "high", title: "总仓位超过纪律线", reason: `当前 ${metrics.totalPositionPct.toFixed(1)}%，上限 ${state.settings.maxTotalPositionPct}%。`, action: "建立降仓计划并优先处理高集中持仓", amount: metrics.investedValue - totalLimit, instrumentId: null });
+  }
+  const singleLimit = metrics.totalAssets * state.settings.maxSinglePositionPct / 100;
+  metrics.valuations.filter((item) => item.valueBase > singleLimit).sort((a, b) => b.valueBase - a.valueBase).forEach((item) => {
+    actions.push({ id: `single-${item.instrument.id}`, priority: "high", title: `${item.instrument.symbol} 单仓超过上限`, reason: `占总资产 ${(item.valueBase / metrics.totalAssets * 100).toFixed(1)}%，上限 ${state.settings.maxSinglePositionPct}%。`, action: "建立该标的风险处置计划", amount: item.valueBase - singleLimit, instrumentId: item.instrument.id });
+  });
+  const classified = metrics.valuations.filter((item) => item.instrument.sectors.length || item.instrument.styles.length).length;
+  if (classified < metrics.valuations.length) {
+    actions.push({ id: "classification-gap", priority: "medium", title: "行业暴露仍有数据缺口", reason: `本地风险标签覆盖 ${classified}/${metrics.valuations.length}；科技暴露等分类指标可能被低估。`, action: "先补齐分类，再依据分类指标决策", amount: null, instrumentId: null });
+  }
+  if (metrics.dataConfidence < 100) {
+    actions.push({ id: "quote-gap", priority: "medium", title: "部分持仓使用估算价格", reason: `有效行情覆盖率 ${metrics.dataConfidence}%。`, action: "刷新行情后重新同步风险警报", amount: null, instrumentId: null });
+  }
+  if (!actions.length) actions.push({ id: "within-limits", priority: "info", title: "当前未发现硬性超限", reason: "总仓位、最大单仓和行情覆盖均在现有规则内。", action: "保持观察并定期同步风险警报", amount: null, instrumentId: null });
+  return actions;
 }
