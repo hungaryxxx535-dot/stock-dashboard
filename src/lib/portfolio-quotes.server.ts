@@ -19,10 +19,21 @@ const finite = (value: string | undefined) => {
   return Number.isFinite(number) ? number : null;
 };
 
-function marketTime(value: string | undefined): string | null {
+function usEasternOffset(year: number, month: number, day: number): string {
+  const sample = new Date(Date.UTC(year, month - 1, day, 12));
+  const zone = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", timeZoneName: "longOffset" })
+    .formatToParts(sample).find((part) => part.type === "timeZoneName")?.value;
+  return zone?.replace("GMT", "") || "-05:00";
+}
+
+function marketTime(value: string | undefined, market: Target["market"]): string | null {
   const digits = value?.replace(/\D/g, "") ?? "";
   if (digits.length < 14) return null;
-  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}T${digits.slice(8, 10)}:${digits.slice(10, 12)}:${digits.slice(12, 14)}+08:00`;
+  const year = Number(digits.slice(0, 4));
+  const month = Number(digits.slice(4, 6));
+  const day = Number(digits.slice(6, 8));
+  const offset = market === "US" ? usEasternOffset(year, month, day) : "+08:00";
+  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}T${digits.slice(8, 10)}:${digits.slice(10, 12)}:${digits.slice(12, 14)}${offset}`;
 }
 
 export function parseTencentPortfolioQuotes(text: string, targets: Target[]): PublicPortfolioQuote[] {
@@ -40,7 +51,7 @@ export function parseTencentPortfolioQuotes(text: string, targets: Target[]): Pu
       symbol: target.symbol,
       price,
       previousClose: previousClose && previousClose > 0 ? previousClose : null,
-      marketTime: marketTime(fields[30]),
+      marketTime: marketTime(fields[30], target.market),
       source: "腾讯公开行情（延迟）",
     });
   }
