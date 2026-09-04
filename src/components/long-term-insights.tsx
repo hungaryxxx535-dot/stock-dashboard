@@ -1,6 +1,6 @@
 "use client";
 
-import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, Cell, LabelList, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { AppState } from "@/domain/model";
 import type { PortfolioMetrics } from "@/domain/engines/portfolio-risk-engine";
 
@@ -38,7 +38,7 @@ export function LongTermInsights({ state, metrics, compact = false }: { state: A
         <div className="mt-3 grid grid-cols-2 gap-2">{allocation.map((item, index) => <div key={item.name} className="flex items-center justify-between gap-2 text-sm"><span className="flex items-center gap-2 text-slate-500"><i className="h-2.5 w-2.5 rounded-full" style={{ background: colors[index % colors.length] }} />{item.name}</span><b>{pct(metrics.totalAssets ? item.value / metrics.totalAssets * 100 : 0)}</b></div>)}</div>
       </ChartCard>
       <ChartCard title="持仓集中度" note={`前 ${holdings.length} 项持仓占总资产比例`}>
-        <div className={compact ? "h-72" : "h-[420px]"}><ResponsiveContainer width="100%" height="100%"><BarChart data={holdings} layout="vertical" margin={{ left: 4, right: 24, top: 4, bottom: 4 }}><XAxis type="number" hide domain={[0, "dataMax"]} /><YAxis type="category" dataKey="name" width={62} tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: "#8d969e" }} /><Tooltip formatter={(value, name, props) => [money(Number(props.payload.value)), `${props.payload.fullName} · ${Number(value).toFixed(1)}%`]} contentStyle={tooltipStyle} /><Bar dataKey="share" fill="#494fdf" radius={[0, 8, 8, 0]} barSize={18} /></BarChart></ResponsiveContainer></div>
+        <div className={compact ? "h-72" : "h-[420px]"}><ResponsiveContainer width="100%" height="100%"><BarChart data={holdings} layout="vertical" margin={{ left: 4, right: 48, top: 4, bottom: 4 }}><XAxis type="number" hide domain={[0, "dataMax"]} /><YAxis type="category" dataKey="name" width={62} tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: "#8d969e" }} /><Tooltip formatter={(value, name, props) => [money(Number(props.payload.value)), `${props.payload.fullName} · ${Number(value).toFixed(1)}%`]} contentStyle={tooltipStyle} /><Bar dataKey="share" fill="#494fdf" radius={[0, 8, 8, 0]} barSize={18}><LabelList dataKey="share" position="right" formatter={(value: unknown) => `${Number(value).toFixed(1)}%`} fill="#8d969e" fontSize={11} /></Bar></BarChart></ResponsiveContainer></div>
       </ChartCard>
     </div>
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
