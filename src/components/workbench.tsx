@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, CheckCircle2, Database, Download, Loader2, Plus, RefreshCw, ShieldAlert, Upload } from "lucide-react";
+import { ArrowRight, CheckCircle2, Database, Download, Loader2, Plus, RefreshCw, Upload } from "lucide-react";
 import { usePortfolioData } from "@/components/data-provider";
+import { LongTermInsights } from "@/components/long-term-insights";
 import { PortfolioScreenshotImportV2 } from "@/components/portfolio-screenshot-import-v2";
-import { buildRiskActions, calculatePortfolioMetrics, runStressTests } from "@/domain/engines/portfolio-risk-engine";
-import { synchronizeRiskAlerts } from "@/domain/engines/risk-alert-engine";
-import { buildMissionControl, type MissionSeverity } from "@/domain/engines/mission-control-engine";
+import { calculatePortfolioMetrics } from "@/domain/engines/portfolio-risk-engine";
+import { buildMissionControl } from "@/domain/engines/mission-control-engine";
 import { buildPeriodReview } from "@/domain/engines/review-engine";
 import { canTransitionPlan, transitionTradePlan } from "@/domain/engines/trade-plan-engine";
 import type { AppState } from "@/domain/model";
@@ -29,16 +29,16 @@ const changeTone = (value: number | null) => value === null ? "text-slate-500" :
 const id = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
 function PageHeader({ title, description, action }: { title: string; description: string; action?: React.ReactNode }) {
-  return <header className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="mb-2 text-xs font-bold uppercase tracking-[.2em] text-cyan-600">Stock War Room V2</p><h1 className="text-3xl font-black tracking-tight sm:text-4xl">{title}</h1><p className="mt-2 max-w-3xl text-sm text-slate-500 dark:text-slate-400">{description}</p></div>{action}</header>;
+  return <header className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="mb-2 text-xs font-medium uppercase tracking-[.22em] text-[#494fdf]">Portfolio Intelligence</p><h1 className="text-3xl font-semibold tracking-[-0.035em] sm:text-4xl">{title}</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500 dark:text-slate-400">{description}</p></div>{action}</header>;
 }
 function Panel({ title, children, className = "" }: { title?: string; children: React.ReactNode; className?: string }) {
-  return <section className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-5 ${className}`}>{title && <h2 className="mb-4 text-lg font-black">{title}</h2>}{children}</section>;
+  return <section className={`rounded-[24px] border border-black/5 bg-white p-4 dark:border-white/10 dark:bg-[#191c1f] sm:p-5 ${className}`}>{title && <h2 className="mb-4 text-lg font-semibold tracking-tight">{title}</h2>}{children}</section>;
 }
 function Metric({ label, value, note }: { label: string; value: string; note?: string }) {
   return <Panel><p className="text-sm text-slate-500">{label}</p><p className="mt-2 text-2xl font-black">{value}</p>{note && <p className="mt-1 text-xs text-slate-500">{note}</p>}</Panel>;
 }
 const inputClass = "min-h-11 w-full rounded-xl border border-slate-300 bg-transparent px-3 text-sm dark:border-slate-700";
-const buttonClass = "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-bold text-white disabled:opacity-50 dark:bg-cyan-400 dark:text-slate-950";
+const buttonClass = "inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-[#191c1f] px-5 text-sm font-medium text-white transition hover:opacity-85 disabled:opacity-50 dark:bg-white dark:text-[#191c1f]";
 
 export function Workbench({ view }: { view: View }) {
   const data = usePortfolioData();
@@ -58,19 +58,12 @@ export function Workbench({ view }: { view: View }) {
 }
 
 function HomePage({ state, metrics, error }: { state: AppState; metrics: ReturnType<typeof calculatePortfolioMetrics>; error: string }) {
-  const mission = useMemo(() => buildMissionControl(state), [state]);
-  const severityStyle: Record<MissionSeverity, string> = {
-    blocker: "border-red-300 bg-red-50 text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100",
-    critical: "border-orange-300 bg-orange-50 text-orange-950 dark:border-orange-900 dark:bg-orange-950/30 dark:text-orange-100",
-    warning: "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100",
-    info: "border-slate-200 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100",
-  };
-  const modeLabel = state.mode === "demo" ? "匿名演示" : state.mode === "cloud" ? "Render 云端" : "本地私有";
-  return <><PageHeader title="今日作战台" description="先看数据质量，再看风险与计划。金额由云端持仓、可用行情与明确标注的降级规则计算。" action={<Link className={buttonClass} href="/plans/daily">查看日程 <ArrowRight className="h-4 w-4" /></Link>} />
+  const modeLabel = state.mode === "demo" ? "匿名演示" : state.mode === "cloud" ? "云端持仓已连接" : "本地数据";
+  const latestQuoteTime = metrics.valuations.map((item) => item.quote?.marketTime).filter((value): value is string => Boolean(value)).sort().at(-1);
+  return <><PageHeader title="我的长期组合" description="用配置结构和持仓变化观察长期资产，不设置止损线，也不生成短线交易指令。" action={<Link className={buttonClass} href="/portfolio">查看全部持仓 <ArrowRight className="h-4 w-4" /></Link>} />
     {error && <div className="mb-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{error}</div>}
-    <Panel className="mb-4 !border-slate-900 !bg-slate-950 !text-white dark:!border-cyan-400"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><p className="text-xs font-bold uppercase tracking-widest text-cyan-300">今日总指令 · {mission.statusLabel}</p><p className="mt-3 text-xl font-black">{mission.command}</p><p className="mt-2 text-sm text-slate-300">价格覆盖率 {metrics.dataConfidence}% · 模式 {modeLabel}</p></div><div className="shrink-0 rounded-2xl border border-white/20 px-5 py-3 text-center"><p className="text-3xl font-black">{mission.readinessScore}</p><p className="text-xs text-slate-300">决策准备度</p></div></div></Panel>
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric label="总资产估算" value={money(metrics.totalAssets)} note="缺失行情时使用经济成本估算" /><Metric label="整体仓位" value={pct(metrics.totalPositionPct)} note={`上限 ${state.settings.maxTotalPositionPct}%`} /><Metric label="最大单仓" value={pct(metrics.largestHoldingPct)} note={`上限 ${state.settings.maxSinglePositionPct}%`} /><Metric label="科技暴露" value={pct(metrics.technologyExposurePct)} note={`上限 ${state.settings.maxTechnologyExposurePct}%`} /></div>
-    <div className="mt-4 grid gap-4 lg:grid-cols-[1.4fr_1fr]"><Panel title={`今日任务 · ${mission.items.length}`}><div className="space-y-3">{mission.items.slice(0, 6).map((item) => <article key={item.id} className={`rounded-xl border p-3 ${severityStyle[item.severity]}`}><div className="flex items-start justify-between gap-3"><div><p className="font-black">{item.title}</p><p className="mt-1 text-sm opacity-75">{item.reason}</p></div><Link href={item.href} className="shrink-0 text-sm font-bold">{item.actionLabel} →</Link></div></article>)}</div></Panel><Panel title="作战闸门"><dl className="grid grid-cols-2 gap-3 text-sm"><dt>阻断项</dt><dd className="text-right font-black text-red-600">{mission.counts.blocker}</dd><dt>严重项</dt><dd className="text-right font-black text-orange-600">{mission.counts.critical}</dd><dt>预警项</dt><dd className="text-right font-black text-amber-600">{mission.counts.warning}</dd><dt>提醒项</dt><dd className="text-right font-black">{mission.counts.info}</dd></dl><p className="mt-4 text-sm leading-7 text-slate-600 dark:text-slate-300">任务由持仓行情、风险规则、计划有效期、未处理警报和复盘完整度自动生成。准备度只表示流程是否齐备，不预测涨跌，也不是交易建议。</p></Panel></div>
+    <section className="mb-4 overflow-hidden rounded-[28px] bg-[#191c1f] p-6 text-white sm:p-8"><div className="flex flex-col justify-between gap-8 sm:flex-row sm:items-end"><div><p className="text-sm text-white/55">资产总览 · {modeLabel}</p><p className="mt-3 text-4xl font-semibold tracking-[-0.04em] tabular-nums sm:text-5xl">{money(metrics.totalAssets)}</p><p className="mt-3 text-sm text-white/55">行情覆盖 {metrics.dataConfidence}%{latestQuoteTime ? ` · 更新至 ${new Date(latestQuoteTime).toLocaleString("zh-CN", { hour12: false })}` : ""}</p></div><div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm"><div><p className="text-white/45">持仓市值</p><p className="mt-1 text-lg font-medium">{money(metrics.investedValue)}</p></div><div><p className="text-white/45">现金</p><p className="mt-1 text-lg font-medium">{money(metrics.cashValue)}</p></div><div><p className="text-white/45">持仓比例</p><p className="mt-1 text-lg font-medium">{pct(metrics.totalPositionPct)}</p></div><div><p className="text-white/45">持仓数量</p><p className="mt-1 text-lg font-medium">{metrics.valuations.length}</p></div></div></div></section>
+    <LongTermInsights state={state} metrics={metrics} compact />
   </>;
 }
 
@@ -287,15 +280,9 @@ function DailyPage() {
   );
 }
 function RiskPage() {
-  const { state, save } = usePortfolioData(); const metrics = useMemo(() => calculatePortfolioMetrics(state), [state]); const stress = useMemo(() => runStressTests(state, metrics), [state, metrics]);
-  const actions = useMemo(() => buildRiskActions(state, metrics), [state, metrics]);
-  const warnings = [{ name: "总仓位", value: metrics.totalPositionPct, max: state.settings.maxTotalPositionPct }, { name: "最大单仓", value: metrics.largestHoldingPct, max: state.settings.maxSinglePositionPct }, { name: "科技暴露", value: metrics.technologyExposurePct, max: state.settings.maxTechnologyExposurePct }];
-  const synchronize = () => save((current) => ({ ...current, alerts: synchronizeRiskAlerts(current) }));
-  const resolve = (alertId: string) => save((current) => ({ ...current, alerts: current.alerts.map((alert) => alert.id === alertId ? { ...alert, resolvedAt: new Date().toISOString() } : alert) }));
-  const activeAlerts = state.alerts.filter((alert) => alert.resolvedAt === null);
-  return <><PageHeader title="风险中心" description="先看行动清单，再看指标与压力测试；金额只表示回到既定风险线所需调整的规模，不构成买卖建议。" action={<button className={buttonClass} onClick={() => void synchronize()}><RefreshCw className="h-4 w-4" />同步风险警报</button>} />
-    <Panel title={`今日风险行动 · ${actions.length}`} className="mb-4"><div className="space-y-3">{actions.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.priority === "high" ? "border-red-300 bg-red-50 dark:bg-red-950/20" : item.priority === "medium" ? "border-amber-300 bg-amber-50 dark:bg-amber-950/20" : "border-emerald-300 bg-emerald-50 dark:bg-emerald-950/20"}`}><div className="flex items-start gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-950 text-sm font-black text-white dark:bg-white dark:text-slate-950">{index + 1}</span><div className="min-w-0 flex-1"><div className="flex flex-col justify-between gap-2 sm:flex-row"><div><p className="font-black">{item.title}</p><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{item.reason}</p>{item.amount !== null && <p className="mt-1 text-sm font-black text-red-700">回到纪律线需释放约 {money(item.amount)}</p>}</div><Link className="shrink-0 text-sm font-bold text-cyan-700 dark:text-cyan-300" href={item.instrumentId ? `/plans?instrument=${encodeURIComponent(item.instrumentId)}` : "/plans"}>{item.action} →</Link></div></div></div></article>)}</div></Panel>
-    <div className="mb-4 grid gap-4 sm:grid-cols-3">{warnings.map((item) => <Panel key={item.name}><div className="flex justify-between"><b>{item.name}</b>{item.value > item.max ? <ShieldAlert className="text-red-600" /> : <CheckCircle2 className="text-emerald-600" />}</div><p className="mt-3 text-2xl font-black">{pct(item.value)}</p><p className="text-xs text-slate-500">规则上限 {item.max}%</p></Panel>)}</div><Panel title={`未处理警报 · ${activeAlerts.length}`} className="mb-4">{activeAlerts.length ? <div className="space-y-3">{activeAlerts.map((alert) => <article key={alert.id} className={`rounded-xl border p-3 ${alert.severity === "critical" ? "border-red-300 bg-red-50 dark:bg-red-950/20" : "border-amber-300 bg-amber-50 dark:bg-amber-950/20"}`}><div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start"><div><p className="font-black">{alert.title}</p><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{alert.reason}</p><p className="mt-1 text-xs text-slate-500">处置要求：{alert.reviewAction}</p></div><button className="shrink-0 text-sm font-bold text-cyan-700 dark:text-cyan-300" onClick={() => void resolve(alert.id)}>确认已处理</button></div></article>)}</div> : <p className="text-sm text-slate-500">暂无已同步的未处理警报。点击“同步风险警报”按当前组合和启用规则生成审计记录。</p>}</Panel><Panel title="压力测试"><div className="grid gap-3 lg:grid-cols-2">{stress.map((item) => <div key={item.id} className="rounded-xl border p-3"><div className="flex justify-between gap-3"><b>{item.name}</b><span className={item.severity === "high" ? "text-red-600" : "text-amber-600"}>{pct(item.impactPct)}</span></div><p className="text-sm text-slate-500">{money(item.impactAmount)} · {item.assumptions.join("；")}</p></div>)}</div></Panel></>;
+  const { state } = usePortfolioData();
+  const metrics = useMemo(() => calculatePortfolioMetrics(state), [state]);
+  return <><PageHeader title="组合洞察" description="从资产配置、市场分布和持仓集中度观察长期组合，不提供止损线或短线操作建议。" /><LongTermInsights state={state} metrics={metrics} /></>;
 }
 function JournalPage() {
   const { state, save } = usePortfolioData();
