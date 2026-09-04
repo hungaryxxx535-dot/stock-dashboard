@@ -9,6 +9,7 @@ import { hasLegacyBrowserData, migrateLegacyBrowserData } from "@/lib/storage/mi
 import type { PortfolioRepository } from "@/lib/storage/repository";
 import { isSupabaseConfigured, SupabasePortfolioRepository } from "@/lib/storage/supabase-adapter";
 import { decodePortfolioShare } from "@/lib/portfolio-share";
+import { buildPortfolioQuoteTargets, mergePortfolioQuotes, type PortfolioQuoteResponse } from "@/lib/portfolio-quotes";
 
 type DataContextValue = {
   state: AppState; ready: boolean; error: string; legacyAvailable: boolean;
@@ -16,6 +17,7 @@ type DataContextValue = {
   replace: (next: AppState) => Promise<void>; migrateLegacy: () => Promise<void>;
   exportBackup: () => Promise<string>; importBackup: (raw: string) => Promise<void>;
   restoreSnapshot: (snapshotId: string) => Promise<void>; resetDemo: () => Promise<void>;
+  refreshQuotes: () => Promise<void>;
 };
 
 const DataContext = createContext<DataContextValue | null>(null);
@@ -45,6 +47,16 @@ async function loadCloudPortfolio(): Promise<AppState | null> {
   });
 }
 
+async function loadLatestPortfolioQuotes(state: AppState): Promise<AppState> {
+  const targets = buildPortfolioQuoteTargets(state);
+  if (!targets.length) return state;
+  const response = await fetch(`/api/portfolio-quotes?targets=${encodeURIComponent(targets.join(","))}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(`portfolio quote request failed: ${response.status}`);
+  const payload = await response.json() as PortfolioQuoteResponse;
+  if (!Array.isArray(payload.quotes) || !Array.isArray(payload.missing)) throw new Error("portfolio quote response is invalid");
+  return mergePortfolioQuotes(state, payload);
+}
+
 export function DataProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(freshDemoState);
   const current = useRef(state);
@@ -71,7 +83,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
       } else {
         try {
           const cloud = await loadCloudPortfolio();
-          if (cloud) next = cloud;
+          if (cloud) {
+            next = cloud;
+            try {
+              next = await loadLatestPortfolioQuotes(cloud);
+            } catch {
+              setError("云端持仓已同步；公开行情暂时不可用，当前保留截图快照价格。");
+            }
+          }
         } catch {
           setError("云端持仓暂时不可用，当前显示本机最近一次数据。");
         }
@@ -101,7 +120,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [replace]);
   const restoreSnapshot = useCallback(async (id: string) => replace(await repository.restoreSnapshot(current.current, id)), [replace]);
   const resetDemo = useCallback(() => replace(freshDemoState()), [replace]);
-  const value = useMemo(() => ({ state, ready, error, legacyAvailable, save, replace, migrateLegacy, exportBackup, importBackup, restoreSnapshot, resetDemo }), [state, ready, error, legacyAvailable, save, replace, migrateLegacy, exportBackup, importBackup, restoreSnapshot, resetDemo]);
+  const refreshQuotes = useCallback(async () => {
+    try {
+      const next = await loadLatestPortfolioQuotes(current.current);
+      await repository.save(next); current.current = next; setState(next); setError("");
+    } catch {
+      setError("公开行情刷新失败，已保留最近一次有效价格和截图快照。");
+    }
+  }, []);
+  const value = useMemo(() => ({ state, ready, error, legacyAvailable, save, replace, migrateLegacy, exportBackup, importBackup, restoreSnapshot, resetDemo, refreshQuotes }), [state, ready, error, legacyAvailable, save, replace, migrateLegacy, exportBackup, importBackup, restoreSnapshot, resetDemo, refreshQuotes]);
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 }
 

@@ -70,7 +70,7 @@ export function decodePortfolioShare(token: string): AppState {
       instrumentId = `shared-instrument-${instruments.length}`;
       instrumentIds.set(key, instrumentId);
       instruments.push({ id: instrumentId, symbol: row.s, name: row.n, market: row.m, currency: row.c, assetType: row.t, sectors: row.se, styles: row.st, isLeveraged: false });
-      quotes.push({ instrumentId, price: row.p, previousClose: null, currency: row.c, marketTime: null, fetchedAt: payload.at, source: "跨设备持仓链接", freshness: row.p === null ? "missing" : "delayed", isFallback: false });
+      quotes.push({ instrumentId, price: row.p, previousClose: null, currency: row.c, marketTime: null, fetchedAt: payload.at, source: "用户上传的持仓截图", freshness: row.p === null ? "missing" : "delayed", isFallback: false });
     }
     holdings.push({ id: `shared-holding-${index}`, accountId: accounts[row.a].id, instrumentId, quantity: row.q, brokerCost: row.bc, economicCost: row.ec, status: "open", thesis: "", tags: ["跨设备导入"], openedAt: payload.at, closedAt: null, updatedAt: now });
   });
