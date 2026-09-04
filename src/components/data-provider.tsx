@@ -128,6 +128,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setError("公开行情刷新失败，已保留最近一次有效价格和截图快照。");
     }
   }, []);
+  useEffect(() => {
+    if (!ready || state.mode === "demo") return;
+    const refreshWhenVisible = () => { if (document.visibilityState === "visible") void refreshQuotes(); };
+    const timer = window.setInterval(refreshWhenVisible, 60_000);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", refreshWhenVisible); };
+  }, [ready, state.mode, refreshQuotes]);
   const value = useMemo(() => ({ state, ready, error, legacyAvailable, save, replace, migrateLegacy, exportBackup, importBackup, restoreSnapshot, resetDemo, refreshQuotes }), [state, ready, error, legacyAvailable, save, replace, migrateLegacy, exportBackup, importBackup, restoreSnapshot, resetDemo, refreshQuotes]);
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 }
